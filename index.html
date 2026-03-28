@@ -1,0 +1,1131 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>綜合查詢系統</title>
+    <!-- 載入 React 與 Babel -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <!-- 載入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 載入 Excel 處理函式庫 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;700;800&display=swap');
+        
+        body { 
+            font-family: 'Inter', 'Noto Sans TC', sans-serif; 
+            background-color: #f0fdfa; /* 舒適明亮底色 */
+            /* 更新為指定的背景圖 */
+            background-image: url('./123.png');
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+            background-repeat: no-repeat;
+            color: #334155; 
+            margin: 0;
+            overflow: hidden;
+        }
+        
+        .font-tech-mono { font-family: 'JetBrains Mono', monospace; }
+        
+        /* 舒適柔和滾動條 */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: rgba(248, 250, 252, 0.6); }
+        ::-webkit-scrollbar-thumb { 
+            background: #cbd5e1; 
+            border-radius: 8px; 
+            border: 2px solid rgba(248, 250, 252, 0.8); 
+        }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        /* 舒適閱讀實體微透白面板 */
+        .content-panel {
+            background: rgba(255, 255, 255, 0.65); 
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(226, 232, 240, 0.6);
+            box-shadow: 0 4px 15px rgba(15, 23, 42, 0.04);
+            border-radius: 0.75rem;
+        }
+
+        @keyframes modal-enter {
+            from { opacity: 0; transform: scale(0.98) translateY(10px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+        .modal-animate {
+            animation: modal-enter 0.2s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+        }
+
+        /* 缺料醒目警告框 (舒適護眼版) */
+        .shortage-alert-card {
+            border-color: #fca5a5; 
+            background-color: #fff5f5; 
+            box-shadow: 0 0 0 1px #f87171 inset, 0 4px 10px rgba(239, 68, 68, 0.05);
+        }
+        .shortage-alert-card:hover {
+            border-color: #ef4444; 
+            box-shadow: 0 0 0 1px #ef4444 inset, 0 4px 15px rgba(239, 68, 68, 0.08);
+        }
+    </style>
+</head>
+<body class="font-sans antialiased text-slate-800 min-h-screen">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef } = React;
+
+        // ==========================================
+        // 1. 工具函數
+        // ==========================================
+        const cleanKey = (k) => k ? String(k).replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/gi, '').toLowerCase() : '';
+        const normalizeStr = (str) => String(str || '').trim().toLowerCase();
+
+        const processDateValue = (rawVal) => {
+            if (rawVal === undefined || rawVal === null || rawVal === '') return '';
+            const strVal = String(rawVal).trim();
+            if (/^\d+(\.\d+)?$/.test(strVal)) {
+                const num = parseFloat(strVal);
+                if (num > 30000 && num < 60000) {
+                    const date = new Date((num - 25569) * 86400 * 1000);
+                    return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}`;
+                }
+            }
+            return strVal;
+        };
+
+        const parseDateTimestamp = (str) => {
+            if (!str) return null;
+            const match = String(str).match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+            if (match) return new Date(parseInt(match[1]), parseInt(match[2]) - 1, parseInt(match[3])).getTime();
+            const d = new Date(str);
+            return !isNaN(d.getTime()) ? d.getTime() : null;
+        };
+
+        const getQtyValue = (row, primaryKey) => {
+            const keys = Object.keys(row);
+            const target = cleanKey(primaryKey);
+            const foundKey = keys.find(k => cleanKey(k).includes(target));
+            return foundKey ? row[foundKey] : 0;
+        };
+
+        const getGroupedAndFilteredData = (data, search, shortageOnly) => {
+            if (!data || data.length === 0) return [];
+            const groups = {};
+            data.forEach(item => {
+                const id = item.id || '未知單號';
+                if (!groups[id]) {
+                    groups[id] = {
+                        id, customer: item.customer || '未知客戶', mainStatus: item.status || '', 
+                        mainSpec: item.spec || '', mainQty: item.plannedQty || 0, 
+                        recvDate: item.recvDate || '', shipDate: item.shipDate || '',
+                        hasShortage: false, items: []
+                    };
+                }
+                groups[id].items.push(item);
+                if (!groups[id].recvDate && item.recvDate) groups[id].recvDate = item.recvDate;
+                if (!groups[id].shipDate && item.shipDate) groups[id].shipDate = item.shipDate;
+                if (item.status && item.status.toString().includes('缺料')) {
+                    groups[id].hasShortage = true;
+                }
+            });
+            return Object.values(groups).filter(group => {
+                const matchesSearch = group.id.toString().toLowerCase().includes(search.toLowerCase()) ||
+                                      group.customer.toString().toLowerCase().includes(search.toLowerCase()) ||
+                                      group.mainSpec.toString().toLowerCase().includes(search.toLowerCase());
+                return matchesSearch && (shortageOnly ? group.hasShortage : true);
+            });
+        };
+
+        const readExcelFile = (file) => {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const dataArray = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(dataArray, { type: 'array' });
+                        resolve(workbook);
+                    } catch (err) { reject(err); }
+                };
+                reader.onerror = (e) => reject(e);
+                reader.readAsArrayBuffer(file);
+            });
+        };
+
+        // ==========================================
+        // 2. UI 元件 (Icons / Badges)
+        // ==========================================
+        const Icon = ({ name, className = "w-5 h-5" }) => {
+            const icons = {
+                calendar: <path d="M19 4H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zM8 2v4M16 2v4M3 10h18" />,
+                upload: <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4m4-7 5-5 5 5m-5-5v12" />,
+                spreadsheet: <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />,
+                x: <path d="M18 6L6 18M6 6l12 12" />,
+                loader: <path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83" />,
+                truck: <path d="M1 3h15v13H1z M16 8h4l3 3v5h-7" />,
+                box: <path d="M21 8l-9-4-9 4v8l9 4 9-4V8z M12 4v16" />,
+                info: <React.Fragment><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01" /></React.Fragment>,
+                'clipboard-list': <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2m4-2v4h4m-6 10h6m-6-4h6m-6 8h6" />,
+                package: <path d="m7.5 4.27 9 5.15M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z m-9 12.15V13M3.27 6.96 12 12.01l8.73-5.05M12 22.08V12" />,
+                send: <path d="m22 2-7 20-4-9-9-4Z m0 0L11 13" />,
+                layers: <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />,
+                layout: <React.Fragment><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9" /></React.Fragment>,
+                alert: <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />,
+                refresh: <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />,
+                crosshair: <React.Fragment><circle cx="12" cy="12" r="10" /><line x1="22" y1="12" x2="18" y2="12" /><line x1="6" y1="12" x2="2" y2="12" /><line x1="12" y1="6" x2="12" y2="1" /><line x1="12" y1="22" x2="12" y2="18" /></React.Fragment>,
+                'file-up': <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z m-6 11 3-3 3 3m-3-3v6" />,
+                database: <React.Fragment><ellipse cx="12" cy="5" rx="9" ry="3" /><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" /><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" /></React.Fragment>
+            };
+            return (
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" className={className}>
+                    {icons[name] || null}
+                </svg>
+            );
+        };
+
+        const StatusBadge = ({ status, className = "" }) => {
+            const getColors = (s) => {
+                if (!s) return 'bg-slate-100 text-slate-600 border-slate-200';
+                const str = s.toString();
+                if (str.includes('量產')) return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                if (str.includes('外包')) return 'bg-purple-50 text-purple-700 border-purple-200';
+                if (str.includes('驗證')) return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+                if (str.includes('待出貨') || str.includes('計畫') || str.includes('待包裝')) return 'bg-amber-50 text-amber-700 border-amber-200';
+                if (str.includes('已發料') || str.includes('收料')) return 'bg-teal-50 text-teal-700 border-teal-200';
+                if (str.includes('缺料') || str.includes('異常')) return 'bg-red-50 text-red-700 border-red-200';
+                return 'bg-slate-100 text-slate-600 border-slate-200';
+            };
+            return <span className={`px-2.5 py-1 rounded-md text-xs font-bold border whitespace-nowrap inline-block transition-all ${getColors(status)} ${className}`}>{status || '未知'}</span>;
+        };
+
+        // ==========================================
+        // 3. 解析器邏輯
+        // ==========================================
+        const parseOrderData = (workbook, allColumns) => {
+            const targetSheetNames = ["改裝、維修 訂單-未出", "改裝、維修 訂單-已出", "工程驗證", "雜項-未出"];
+            const foundSheets = workbook.SheetNames.filter(name => targetSheetNames.includes(name));
+            const sheetsToProcess = foundSheets.length > 0 ? foundSheets : [workbook.SheetNames[0]];
+            
+            let allParsedData = [];
+            let parsedSheets = [];
+
+            sheetsToProcess.forEach(sName => {
+                const worksheet = workbook.Sheets[sName];
+                const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '', blankrows: false });
+                let headerIdx = -1;
+                for (let i = 0; i < Math.min(rows.length, 50); i++) {
+                    const rowContent = rows[i].map(c => normalizeStr(c)).join('|');
+                    if (['客戶', '工單', '料號'].filter(k => rowContent.includes(k)).length >= 2) {
+                        headerIdx = i; break;
+                    }
+                }
+
+                if (headerIdx !== -1) {
+                    parsedSheets.push(sName);
+                    const headers = rows[headerIdx];
+                    const normalizedHeaders = headers.map(h => normalizeStr(h));
+                    const dataRows = rows.slice(headerIdx + 1);
+                    
+                    const colMap = {};
+                    allColumns.forEach(config => {
+                        if (config.id === 'fileSource') return; 
+                        let foundIdx = normalizedHeaders.findIndex(hClean => config.keys.some(key => normalizeStr(key) === hClean));
+                        if (foundIdx === -1) {
+                            foundIdx = normalizedHeaders.findIndex(hClean => 
+                                config.keys.some(key => {
+                                    const kClean = normalizeStr(key);
+                                    return kClean.length > 1 && hClean.includes(kClean);
+                                })
+                            );
+                        }
+                        colMap[config.id] = foundIdx;
+                    });
+
+                    const sheetData = dataRows.map((row, idx) => {
+                        const item = { id: `s-${sName}-r-${idx}`, fileSource: sName };
+                        allColumns.forEach(config => {
+                            if (config.id === 'fileSource') return;
+                            const cellIdx = colMap[config.id];
+                            let val = (cellIdx !== undefined && cellIdx !== -1) ? row[cellIdx] : '';
+                            val = String(val === null || val === undefined ? '' : val).trim();
+                            if (config.id === 'recvDate' || config.id === 'shipDate') val = processDateValue(val);
+                            item[config.id] = val;
+                        });
+                        return item;
+                    }).filter(item => item.client !== '' || item.workOrder !== '');
+                    allParsedData = [...allParsedData, ...sheetData];
+                }
+            });
+            return { data: allParsedData, sheetNames: parsedSheets };
+        };
+
+        const parseInventoryData = (workbook) => {
+            const result = { workOrders: [], issued: [], pendingShipment: [], materialInventory: [], consumableInventory: [] };
+            const foundNames = [];
+
+            workbook.SheetNames.forEach(sheetName => {
+                const exactName = String(sheetName).trim();
+                
+                // 忽略不相關的設定工作表
+                if (exactName.includes('工單-進貨') || exactName.includes('隱藏') || exactName.includes('設定')) return;
+                
+                const worksheet = workbook.Sheets[sheetName];
+                
+                // 動態尋找標題列
+                const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+                if (rawRows.length === 0) return;
+
+                let headerIdx = -1;
+                for (let i = 0; i < Math.min(rawRows.length, 30); i++) {
+                    const rowContent = rawRows[i].map(c => normalizeStr(c)).join('|');
+                    if (['料號', '品號', 'partno', '單據', '工單', '單號', '品名', '庫存', '用量'].some(k => rowContent.includes(k))) {
+                        headerIdx = i;
+                        break;
+                    }
+                }
+                
+                let json = [];
+                if (headerIdx !== -1) {
+                    // 自動縫合多層合併標題 (解決年份與季度分在兩行的問題)
+                    let headerRow = rawRows[headerIdx] || [];
+                    let prevRow = headerIdx > 0 ? rawRows[headerIdx - 1] : [];
+                    let prevPrevRow = headerIdx > 1 ? rawRows[headerIdx - 2] : [];
+                    
+                    let maxCols = Math.max(headerRow.length, prevRow.length, prevPrevRow.length);
+                    for(let r = headerIdx+1; r < Math.min(headerIdx+5, rawRows.length); r++){
+                        if (rawRows[r]) maxCols = Math.max(maxCols, rawRows[r].length);
+                    }
+
+                    let finalHeaders = [];
+                    let currentYear = '';
+                    
+                    for (let c = 0; c < maxCols; c++) {
+                        let h0 = String(prevPrevRow[c] || '').trim();
+                        let h1 = String(prevRow[c] || '').trim();
+                        let h2 = String(headerRow[c] || '').trim();
+                        
+                        let detectedYear = null;
+                        if (/202[5-9]|2030/.test(h0)) detectedYear = h0.match(/202[5-9]|2030/)[0];
+                        else if (/202[5-9]|2030/.test(h1)) detectedYear = h1.match(/202[5-9]|2030/)[0];
+                        else if (/202[5-9]|2030/.test(h2)) detectedYear = h2.match(/202[5-9]|2030/)[0];
+
+                        if (detectedYear) {
+                            currentYear = detectedYear;
+                        }
+                        
+                        let combinedHeader = h2;
+                        if (currentYear && ['用量', '季', 'q1', 'q2', 'q3', 'q4', '平均'].some(q => h2.toLowerCase().includes(q)) && !h2.includes(currentYear)) {
+                            combinedHeader = currentYear + h2;
+                        }
+                        
+                        if (!combinedHeader) {
+                            combinedHeader = h1 || h0 || `_EMPTY_${c}_`;
+                        }
+                        
+                        let baseHeader = combinedHeader;
+                        let count = 1;
+                        while(finalHeaders.includes(combinedHeader)){
+                            combinedHeader = `${baseHeader}_${count}`;
+                            count++;
+                        }
+                        finalHeaders.push(combinedHeader);
+                    }
+
+                    // 轉換資料，保留所有欄位
+                    for (let r = headerIdx + 1; r < rawRows.length; r++) {
+                        let rowData = rawRows[r];
+                        let obj = {};
+                        let hasVal = false;
+                        for (let c = 0; c < finalHeaders.length; c++) {
+                            let val = rowData[c];
+                            obj[finalHeaders[c]] = val;
+                            if (val !== undefined && val !== null && String(val).trim() !== '') {
+                                hasVal = true;
+                            }
+                        }
+                        if (hasVal) json.push(obj);
+                    }
+                } else {
+                    json = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+                    json = json.filter(row => Object.values(row).some(v => v !== undefined && v !== null && String(v).trim() !== ''));
+                }
+
+                if (json.length === 0) return;
+                
+                // 智慧抓值過濾器
+                const getVal = (row, exactMatches, includeMatches = []) => {
+                    const keys = Object.keys(row);
+                    // 第一層：原字串精準比對 (過濾空字串)
+                    for (let t of exactMatches) {
+                        if (row[t] !== undefined && String(row[t]).trim() !== '') return row[t];
+                    }
+                    // 第二層：去除特殊字元(空白、括號)後精準比對 (過濾空字串)
+                    for (let t of exactMatches) {
+                        const cleanT = cleanKey(t);
+                        const found = keys.find(k => cleanKey(k) === cleanT);
+                        if (found && row[found] !== undefined && String(row[found]).trim() !== '') return row[found];
+                    }
+                    // 第三層：模糊包含比對 (過濾空字串)
+                    for (let t of includeMatches) {
+                        const cleanT = cleanKey(t);
+                        const found = keys.find(k => cleanKey(k).includes(cleanT));
+                        if (found && row[found] !== undefined && String(row[found]).trim() !== '') return row[found];
+                    }
+                    
+                    // 第四層：如果真的找不到有值的，為了「空白依然顯示」，再次尋找，只要欄位存在就回傳它原本的空白內容
+                    for (let t of exactMatches) {
+                        if (row[t] !== undefined) return row[t];
+                        const cleanT = cleanKey(t);
+                        const found = keys.find(k => cleanKey(k) === cleanT);
+                        if (found) return row[found];
+                    }
+                    for (let t of includeMatches) {
+                        const cleanT = cleanKey(t);
+                        const found = keys.find(k => cleanKey(k).includes(cleanT));
+                        if (found) return row[found];
+                    }
+
+                    return ''; 
+                };
+
+                // 1. 處理 "物料庫存" (嚴格指定工作表: 庫存)
+                if (exactName === '庫存') {
+                    foundNames.push(sheetName);
+                    const parsed = json.map(row => {
+                        const yearlyData = {};
+                        [2025, 2026, 2027, 2028, 2029, 2030].forEach(yr => {
+                            yearlyData[yr] = {
+                                usage: getVal(row, [`${yr}用量`, `${yr}年度用量`], [`${yr}用量`]),
+                                q1: getVal(row, [`${yr}第一季`, `${yr}第1季`, `${yr}1季`, `${yr}q1`], [`${yr}第一季`, `${yr}第1季`, `${yr}1季`, `${yr}q1`]),
+                                q2: getVal(row, [`${yr}第二季`, `${yr}第2季`, `${yr}2季`, `${yr}q2`], [`${yr}第二季`, `${yr}第2季`, `${yr}2季`, `${yr}q2`]),
+                                q3: getVal(row, [`${yr}第三季`, `${yr}第3季`, `${yr}3季`, `${yr}q3`], [`${yr}第三季`, `${yr}第3季`, `${yr}3季`, `${yr}q3`]),
+                                q4: getVal(row, [`${yr}第四季`, `${yr}第4季`, `${yr}4季`, `${yr}q4`], [`${yr}第四季`, `${yr}第4季`, `${yr}4季`, `${yr}q4`]),
+                                avg: getVal(row, [`${yr}平均值`, `${yr}平均`], [`${yr}平均`])
+                            };
+                        });
+                        return {
+                            id: getVal(row, ['料號', '品號', 'partno'], ['料號', '品號']),
+                            spec: getVal(row, ['品名', '品名規格'], ['品名', '規格']),
+                            allUsageStock: getVal(row, ['ALL工單用量', 'All工單用量', 'all工單用量', 'ALL工單用量庫存'], ['all工單用量', 'all用量', 'all供單用量', '工單用量']),
+                            yearlyData
+                        };
+                    });
+                    result.materialInventory = parsed.filter(item => item.id || item.spec);
+                }
+                // 2. 處理 "耗材庫存" (嚴格指定工作表: 耗材-庫)
+                else if (exactName === '耗材-庫') {
+                    foundNames.push(sheetName);
+                    const parsed = json.map(row => {
+                        const yearlyData = {};
+                        [2025, 2026, 2027, 2028, 2029, 2030].forEach(yr => {
+                            yearlyData[yr] = { usage: '', q1: '', q2: '', q3: '', q4: '', avg: '' };
+                        });
+                        return {
+                            id: getVal(row, ['料號', '品號', 'partno'], ['料號', '品號']),
+                            spec: getVal(row, ['品名', '品名規格'], ['品名', '規格']),
+                            allUsageStock: getVal(row, ['庫存數量', '庫存', '現有庫存'], ['庫存數量', '庫存']),
+                            yearlyData
+                        };
+                    });
+                    result.consumableInventory = parsed.filter(item => item.id || item.spec);
+                }
+                // 3. 處理 "用料明細" (保留原邏輯：工單、已發放、待出貨)
+                else {
+                    let targetKey = null; let qtyKey = '數量';
+                    if (exactName.includes('工單')) { targetKey = 'workOrders'; qtyKey = '用料表數量'; }
+                    else if (exactName.includes('已發放')) { targetKey = 'issued'; qtyKey = '領用數量'; }
+                    else if (exactName.includes('待出貨')) { targetKey = 'pendingShipment'; qtyKey = '領用數量'; }
+                    
+                    if (targetKey) {
+                        foundNames.push(sheetName);
+                        const mappedData = json.map(row => {
+                            let rawActual = getQtyValue(row, qtyKey);
+                            let rawPlanned = getQtyValue(row, '用料表數量');
+                            let rawStock = getQtyValue(row, '庫存');
+
+                            const getValByKeys = (keys) => {
+                                const foundKey = Object.keys(row).find(k => keys.some(searchKey => cleanKey(k).includes(cleanKey(searchKey))));
+                                return foundKey ? processDateValue(row[foundKey]) : '';
+                            };
+
+                            return {
+                                id: row['單據編號'] || row['單號'] || row['工單號碼'] || '',
+                                customer: row['客戶名稱'] || row['客戶'] || '',
+                                partNo: row['NS料號'] || row['博豐料號'] || row['料號'] || row['品號'] || '',
+                                spec: row['品名規格'] || row['品名'] || row['機種'] || '',
+                                qty: isNaN(rawActual) ? 0 : Math.abs(rawActual),
+                                plannedQty: isNaN(rawPlanned) ? 0 : Math.abs(rawPlanned),
+                                stockQty: isNaN(rawStock) ? 0 : rawStock,
+                                status: row['狀態'] || '',
+                                note: row['備註'] || row['注意事項'] || '',
+                                recvDate: getValByKeys(['預計進貨', '收貨日', '到貨日', '進貨日', '進貨資訊']),
+                                shipDate: getValByKeys(['預計出貨', '出貨日', '出貨資訊'])
+                            };
+                        }).filter(item => item.id || item.partNo || item.spec); 
+                        result[targetKey] = [...result[targetKey], ...mappedData];
+                    }
+                }
+            });
+
+            return { data: result, sheetNames: foundNames };
+        };
+
+        // ==========================================
+        // 4. 子模組元件
+        // ==========================================
+
+        const YearlyDataModal = ({ item, onClose }) => {
+            if (!item) return null;
+            const years = [2025, 2026, 2027, 2028, 2029, 2030];
+            return (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm" onClick={onClose}>
+                    <div className="bg-white/85 backdrop-blur-md w-full max-w-5xl rounded-2xl shadow-xl border border-slate-200/50 flex flex-col modal-animate overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <div className="bg-white/60 px-6 py-4 border-b border-slate-200/50 flex justify-between items-center relative">
+                            <div className="absolute top-0 left-0 w-1.5 h-full bg-teal-500"></div>
+                            <div className="flex items-center gap-4">
+                                <div className="p-2 rounded-lg bg-teal-50/80 border border-teal-100 text-teal-600"><Icon name="layout" /></div>
+                                <div>
+                                    <h3 className="text-xl font-bold text-slate-800 tracking-wider text-left">季報與平均明細</h3>
+                                    <p className="text-sm text-teal-600 font-mono mt-0.5 text-left">{item.id}</p>
+                                </div>
+                            </div>
+                            <button onClick={onClose} className="p-2 hover:bg-white/50 rounded-full text-slate-400 hover:text-teal-600 transition-all"><Icon name="x" /></button>
+                        </div>
+                        <div className="p-6 overflow-auto max-h-[70vh]">
+                            <table className="w-full table-auto text-left border-collapse">
+                                <thead className="bg-white/40 text-teal-800 text-sm font-bold uppercase tracking-wider border-b border-slate-200/50">
+                                    <tr>
+                                        <th className="px-4 py-3 whitespace-nowrap">年度</th>
+                                        <th className="px-4 py-3 text-teal-700 whitespace-nowrap">總用量</th>
+                                        <th className="px-4 py-3 text-slate-600 whitespace-nowrap">第1季</th>
+                                        <th className="px-4 py-3 text-slate-600 whitespace-nowrap">第2季</th>
+                                        <th className="px-4 py-3 text-slate-600 whitespace-nowrap">第3季</th>
+                                        <th className="px-4 py-3 text-slate-600 whitespace-nowrap">第4季</th>
+                                        <th className="px-4 py-3 text-emerald-600 whitespace-nowrap">平均值</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="text-base font-mono divide-y divide-slate-200/50 text-slate-700">
+                                    {years.map(yr => {
+                                        const d = item.yearlyData[yr] || {};
+                                        return (
+                                            <tr key={yr} className="hover:bg-teal-50/40 transition-colors">
+                                                <td className="px-4 py-4 font-bold text-slate-800 font-sans whitespace-nowrap">{yr}</td>
+                                                <td className="px-4 py-4 font-black text-teal-600 text-lg whitespace-nowrap">{d.usage}</td>
+                                                <td className="px-4 py-4 whitespace-nowrap">{d.q1}</td>
+                                                <td className="px-4 py-4 whitespace-nowrap">{d.q2}</td>
+                                                <td className="px-4 py-4 whitespace-nowrap">{d.q3}</td>
+                                                <td className="px-4 py-4 whitespace-nowrap">{d.q4}</td>
+                                                <td className="px-4 py-4 font-bold text-emerald-600 text-lg whitespace-nowrap">{d.avg}</td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div className="bg-white/40 px-6 py-4 border-t border-slate-200/50 flex justify-end">
+                            <button onClick={onClose} className="px-6 py-2.5 bg-teal-600 text-white rounded-lg font-bold text-base shadow-sm hover:bg-teal-700 transition-colors">關閉視窗</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const ModuleNav = ({ module, setModule, counts, globalSearch }) => {
+            const getBtn = (id, label) => {
+                const isActive = module === id;
+                return (
+                    <button 
+                        onClick={() => setModule(id)} 
+                        className={`px-3 py-1.5 text-sm font-bold rounded-md transition-all whitespace-nowrap flex items-center gap-1.5 ${isActive ? 'bg-white text-teal-700 border border-slate-200 shadow-sm' : 'text-slate-500 hover:text-teal-600 hover:bg-slate-50 border border-transparent'}`}
+                    >
+                        {label}
+                        {globalSearch ? (
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-tech-mono ${isActive ? 'bg-teal-50 text-teal-700 border border-teal-200' : 'bg-slate-100 text-slate-500 border border-slate-200'}`}>
+                                篩選:{counts[id] || 0}
+                            </span>
+                        ) : (
+                            (counts[id] > 0) ? (
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded font-tech-mono ${isActive ? 'bg-teal-50 text-teal-700 border border-teal-200' : 'bg-slate-100 text-slate-500 border border-slate-200'}`}>
+                                    {counts[id]}
+                                </span>
+                            ) : null
+                        )}
+                    </button>
+                );
+            };
+
+            return (
+                <div className="bg-slate-100/90 p-1 rounded-xl border border-slate-200 flex shrink-0 w-full md:w-auto overflow-x-auto gap-0.5">
+                    {getBtn('materialInventory', '物料庫存')}
+                    {getBtn('consumableInventory', '耗材庫存')}
+                    {getBtn('order', '訂單管理')}
+                    {getBtn('inventory', '用料明細')}
+                </div>
+            );
+        };
+
+        const OrderSystem = ({ data, columns, globalSearch, dates }) => {
+            const [activeTab, setActiveTab] = useState('recv');
+            const [selected, setSelected] = useState(null);
+
+            const filteredRecv = useMemo(() => {
+                return data.filter(i => {
+                    const matchesSearch = !globalSearch || Object.values(i).some(v => String(v).toLowerCase().includes(globalSearch.toLowerCase()));
+                    const ts = parseDateTimestamp(i.recvDate);
+                    const matchesDate = (!dates.start || (ts && ts >= parseDateTimestamp(dates.start))) && (!dates.end || (ts && ts <= parseDateTimestamp(dates.end)));
+                    return matchesSearch && matchesDate;
+                }).sort((a, b) => (parseDateTimestamp(a.recvDate) || 9999999999999) - (parseDateTimestamp(b.recvDate) || 9999999999999));
+            }, [data, globalSearch, dates]);
+
+            const filteredShip = useMemo(() => {
+                return data.filter(i => {
+                    const matchesSearch = !globalSearch || Object.values(i).some(v => String(v).toLowerCase().includes(globalSearch.toLowerCase()));
+                    const ts = parseDateTimestamp(i.shipDate);
+                    const matchesDate = (!dates.start || (ts && ts >= parseDateTimestamp(dates.start))) && (!dates.end || (ts && ts <= parseDateTimestamp(dates.end)));
+                    return matchesSearch && matchesDate;
+                }).sort((a, b) => (parseDateTimestamp(a.shipDate) || 9999999999999) - (parseDateTimestamp(b.shipDate) || 9999999999999));
+            }, [data, globalSearch, dates]);
+
+            const displayData = activeTab === 'recv' ? filteredRecv : filteredShip;
+
+            return (
+                <div className="flex flex-col h-full p-4 sm:p-6 text-left">
+                    {data.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center flex-1 text-teal-600 p-8">
+                            <div className="content-panel rounded-full p-8 mb-6 border-slate-200">
+                                <Icon name="crosshair" className="w-20 h-20 text-teal-500" />
+                            </div>
+                            <p className="text-lg mt-4 text-teal-700 tracking-widest text-center font-mono">請手動上傳訂單 Excel 資料</p>
+                        </div>
+                    ) : (
+                        <>
+                            <div className="flex gap-2 mb-0">
+                                <button onClick={() => setActiveTab('recv')} className={`px-6 py-3 sm:px-8 sm:py-4 rounded-t-xl text-base sm:text-lg font-bold border-t border-x transition-all ${activeTab === 'recv' ? 'bg-white text-teal-700 border-slate-200 shadow-sm z-10' : 'bg-slate-100/80 text-slate-500 border-transparent hover:bg-slate-50 hover:text-teal-600'}`}>
+                                    預計進貨 <span className="font-tech-mono ml-1">[{filteredRecv.length}]</span>
+                                </button>
+                                <button onClick={() => setActiveTab('ship')} className={`px-6 py-3 sm:px-8 sm:py-4 rounded-t-xl text-base sm:text-lg font-bold border-t border-x transition-all ${activeTab === 'ship' ? 'bg-white text-teal-700 border-slate-200 shadow-sm z-10' : 'bg-slate-100/80 text-slate-500 border-transparent hover:bg-slate-50 hover:text-teal-600'}`}>
+                                    預計出貨 <span className="font-tech-mono ml-1">[{filteredShip.length}]</span>
+                                </button>
+                            </div>
+
+                            <div className="content-panel rounded-tl-none flex-1 overflow-hidden flex flex-col">
+                                <div className="overflow-auto flex-1">
+                                    <table className="w-full table-auto text-left border-collapse min-w-max bg-white/40 backdrop-blur-sm">
+                                        <thead className="bg-white/60 sticky top-0 z-10 text-xs sm:text-sm font-bold text-teal-800 uppercase tracking-widest border-b border-white/50">
+                                            <tr>
+                                                <th className="px-3 py-3 w-12 text-center whitespace-nowrap">#</th>
+                                                {columns.filter(c => activeTab === 'recv' ? c.id !== 'shipDate' : c.id !== 'recvDate').filter(c => !['notes', 'remarks'].includes(c.id)).map(col => (
+                                                    <th key={col.id} className={`px-3 py-3 min-w-[90px] break-words ${col.id.includes('Date') ? 'text-teal-600' : ''}`}>{col.label}</th>
+                                                ))}
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-white/40 text-sm text-slate-700">
+                                            {displayData.map((row, idx) => (
+                                                <tr key={idx} className="hover:bg-white/60 transition-colors">
+                                                    <td className="px-3 py-2 text-center text-slate-400 font-tech-mono whitespace-nowrap align-top">{idx + 1}</td>
+                                                    {columns.filter(c => activeTab === 'recv' ? c.id !== 'shipDate' : c.id !== 'recvDate').filter(c => !['notes', 'remarks'].includes(c.id)).map(col => (
+                                                        <td key={col.id} className={`px-3 py-2 min-w-[90px] max-w-[250px] break-words whitespace-pre-wrap align-top ${col.id === 'workOrder' ? 'text-teal-700 font-bold text-base' : ''}`}>
+                                                            {col.id === 'workOrder' ? (
+                                                                <button onClick={() => setSelected(row)} className="hover:underline hover:text-teal-500 text-left break-all">{row[col.id]}</button>
+                                                            ) : row[col.id] || '-'}
+                                                        </td>
+                                                    ))}
+                                                </tr>
+                                            ))}
+                                            {displayData.length === 0 && (
+                                                <tr><td colSpan="15" className="px-6 py-24 text-center text-slate-500 font-bold text-xl">查無符合資料</td></tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </>
+                    )}
+                    
+                    {selected && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm" onClick={() => setSelected(null)}>
+                            <div className="bg-white/85 backdrop-blur-md border border-slate-200/50 w-full max-w-2xl rounded-xl overflow-hidden shadow-xl modal-animate" onClick={e => e.stopPropagation()}>
+                                <div className="bg-white/60 p-5 border-b border-slate-200/50 flex justify-between items-center relative">
+                                    <div className="absolute top-0 left-0 w-1.5 h-full bg-teal-500"></div>
+                                    <div className="font-bold text-slate-800 pl-2 text-xl text-left">工單明細：{selected.workOrder}</div>
+                                    <button onClick={() => setSelected(null)} className="text-slate-400 hover:text-teal-600 transition-colors"><Icon name="x" className="w-6 h-6" /></button>
+                                </div>
+                                <div className="p-6 space-y-5 text-left max-h-[70vh] overflow-y-auto">
+                                    <div><label className="text-sm font-bold text-teal-600 uppercase">作業注意事項</label><div className="bg-white/50 p-4 rounded-lg mt-2 text-base border border-slate-200/50 text-slate-700 leading-relaxed whitespace-pre-wrap">{selected.notes || '無'}</div></div>
+                                    <div><label className="text-sm font-bold text-teal-600 uppercase">備註</label><div className="bg-white/50 p-4 rounded-lg mt-2 text-base border border-slate-200/50 text-slate-700 leading-relaxed whitespace-pre-wrap">{selected.remarks || '無'}</div></div>
+                                </div>
+                                <div className="bg-white/40 px-6 py-4 flex justify-end border-t border-slate-200/50">
+                                    <button onClick={() => setSelected(null)} className="px-6 py-2.5 bg-teal-600 text-white rounded-lg font-bold text-base hover:bg-teal-700 transition-colors shadow-sm">關閉視窗</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const InventorySystem = ({ data, globalSearch, onlyShortage }) => {
+            const [activeTab, setActiveTab] = useState('工單');
+            const [selected, setSelected] = useState(null);
+
+            const tabs = [
+                { id: 'workOrders', name: '工單', icon: 'spreadsheet' },
+                { id: 'issued', name: '已發放', icon: 'package' },
+                { id: 'pendingShipment', name: '待出貨', icon: 'truck' }
+            ];
+
+            const currentTabId = tabs.find(t => t.name === activeTab).id;
+            const grouped = getGroupedAndFilteredData(data[currentTabId] || [], globalSearch, onlyShortage);
+
+            const filteredCounts = useMemo(() => {
+                return {
+                    workOrders: getGroupedAndFilteredData(data.workOrders || [], globalSearch, onlyShortage).length,
+                    issued: getGroupedAndFilteredData(data.issued || [], globalSearch, onlyShortage).length,
+                    pendingShipment: getGroupedAndFilteredData(data.pendingShipment || [], globalSearch, onlyShortage).length,
+                };
+            }, [data, globalSearch, onlyShortage]);
+
+            const actualInventoryMap = useMemo(() => {
+                const map = {};
+                if (data.materialInventory && Array.isArray(data.materialInventory)) {
+                    data.materialInventory.forEach(item => {
+                        if (item.id) {
+                            map[String(item.id).trim().toLowerCase()] = item.allUsageStock;
+                        }
+                    });
+                }
+                if (data.consumableInventory && Array.isArray(data.consumableInventory)) {
+                    data.consumableInventory.forEach(item => {
+                        if (item.id) {
+                            map[String(item.id).trim().toLowerCase()] = item.allUsageStock;
+                        }
+                    });
+                }
+                return map;
+            }, [data.materialInventory, data.consumableInventory]);
+
+            const getDisplayStock = (partNo, originalStock) => {
+                if (!partNo) return originalStock;
+                const normalizedPartNo = String(partNo).trim().toLowerCase();
+                return actualInventoryMap[normalizedPartNo] !== undefined ? actualInventoryMap[normalizedPartNo] : originalStock;
+            };
+
+            return (
+                <div className="flex flex-col h-full p-4 sm:p-6 text-left">
+                    {(!data.workOrders?.length && !data.issued?.length && !data.pendingShipment?.length) ? (
+                        <div className="flex flex-col items-center justify-center flex-1 text-teal-600 p-8">
+                            <div className="content-panel rounded-full p-6 mb-6 border-slate-200">
+                                <Icon name="file-up" className="w-16 h-16 text-teal-500" />
+                            </div>
+                            <p className="text-base mt-3 text-teal-700 tracking-widest text-center font-mono">請手動上傳用料明細 Excel 資料</p>
+                        </div>
+                    ) : (
+                        <>
+                            <div className="flex flex-wrap gap-2 sm:gap-4 mb-4">
+                                {tabs.map(t => (
+                                    <button key={t.id} onClick={() => setActiveTab(t.name)} className={`flex items-center gap-1 sm:gap-2 pb-2 px-1 sm:px-2 border-b-2 font-bold text-sm sm:text-base transition-all ${activeTab === t.name ? 'border-teal-600 text-teal-700' : 'border-transparent text-slate-500 hover:text-teal-600'}`}>
+                                        <Icon name={t.icon} className="w-4 h-4 sm:w-5 sm:h-5" /> {t.name}
+                                        <span className={`px-2 py-0.5 rounded text-[10px] sm:text-xs font-mono border ${activeTab === t.name ? 'bg-teal-50 border-teal-200 text-teal-700' : 'bg-white border-slate-200 text-slate-500'}`}>
+                                            {filteredCounts[t.id] || 0}
+                                        </span>
+                                    </button>
+                                ))}
+                            </div>
+                            <div className="flex-1 overflow-y-auto space-y-4 pr-2 pb-6">
+                                {grouped.map(g => (
+                                    <div key={g.id} onClick={() => setSelected(g)} className={`content-panel p-4 sm:p-5 cursor-pointer transition-all hover:border-teal-300 hover:shadow-md ${g.hasShortage ? 'shortage-alert-card' : ''}`}>
+                                        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center text-left gap-3 sm:gap-0">
+                                            <div className="flex gap-3 items-center flex-wrap flex-1">
+                                                <StatusBadge status={g.mainStatus} />
+                                                <div className="text-lg sm:text-xl font-bold text-slate-800 break-all">{g.id}</div>
+                                                {g.hasShortage && (
+                                                    <div className="flex items-center gap-1 bg-red-50 border border-red-200 text-red-600 px-2 py-1 rounded text-xs sm:text-sm font-bold shadow-sm">
+                                                        <Icon name="alert" className="w-4 h-4 sm:w-5 sm:h-5 text-red-500 animate-bounce" /> 缺料警告
+                                                    </div>
+                                                )}
+                                                {(g.recvDate || g.shipDate) && (
+                                                    <div className="flex flex-row flex-wrap gap-2 ml-1 flex-1 min-w-[200px]">
+                                                        {g.recvDate && (
+                                                            <div className="flex items-start gap-1.5 text-xs sm:text-sm font-tech-mono text-slate-700 bg-white/50 px-3 py-2 rounded border border-white/50 shadow-sm flex-1 min-w-[140px] backdrop-blur-sm">
+                                                                <span className="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0 mt-1.5"></span>
+                                                                <span className="shrink-0 mt-0.5">進貨:</span> 
+                                                                <span className="text-slate-800 font-bold whitespace-pre-wrap break-words leading-relaxed">{g.recvDate}</span>
+                                                            </div>
+                                                        )}
+                                                        {g.shipDate && (
+                                                            <div className="flex items-start gap-1.5 text-xs sm:text-sm font-tech-mono text-slate-700 bg-white/50 px-3 py-2 rounded border border-white/50 shadow-sm flex-1 min-w-[140px] backdrop-blur-sm">
+                                                                <span className="w-1.5 h-1.5 rounded-full bg-purple-400 shrink-0 mt-1.5"></span>
+                                                                <span className="shrink-0 mt-0.5">出貨:</span> 
+                                                                <span className="text-slate-800 font-bold whitespace-pre-wrap break-words leading-relaxed">{g.shipDate}</span>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div className="flex flex-wrap items-center gap-3 sm:ml-4 shrink-0 mt-3 sm:mt-0">
+                                                <div className="text-sm sm:text-base font-tech-mono text-slate-600 whitespace-nowrap bg-slate-50 px-3 py-1 rounded border border-slate-200 w-fit">需求: <span className="text-teal-600 font-bold text-lg sm:text-xl">{g.mainQty}</span></div>
+                                            </div>
+                                        </div>
+                                        <div className="mt-3 text-sm sm:text-base text-slate-600 text-left break-words"><span className="font-bold text-slate-800">{g.customer}</span> <span className="mx-2 text-slate-300">|</span> <span>{g.mainSpec}</span></div>
+                                        {g.hasShortage && (
+                                            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3 border-t border-red-100 pt-4">
+                                                {g.items.filter(i => i.status.includes('缺料')).map((i, idx) => (
+                                                    <div key={idx} className="bg-red-50/50 p-3 rounded-lg border border-red-100 text-xs sm:text-sm flex flex-col sm:flex-row justify-between sm:items-start gap-2 sm:gap-0">
+                                                        <div className="flex flex-col min-w-0 pr-2">
+                                                            <div className="flex items-start gap-2 text-left">
+                                                                <Icon name="alert" className="w-4 h-4 text-red-500 animate-pulse shrink-0 mt-0.5" />
+                                                                <span className="text-slate-800 font-bold break-all">{i.partNo}</span>
+                                                            </div>
+                                                            <div className="text-[10px] sm:text-xs text-slate-500 pl-6 mt-1 break-words">{i.spec || '-'}</div>
+                                                        </div>
+                                                        <span className="text-red-600 font-bold font-tech-mono whitespace-nowrap bg-white px-2 py-1 rounded border border-red-200 shadow-sm shrink-0 w-fit sm:w-auto self-start sm:self-auto">庫存: {getDisplayStock(i.partNo, i.stockQty)}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                                {grouped.length === 0 && (
+                                    <div className="text-center py-20 text-slate-500 font-bold text-base sm:text-lg">查無相符的用料明細資料</div>
+                                )}
+                            </div>
+                        </>
+                    )}
+
+                    {selected && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm" onClick={() => setSelected(null)}>
+                            <div className="bg-white/85 backdrop-blur-md border border-slate-200/50 w-full max-w-5xl max-h-[80vh] rounded-2xl overflow-hidden shadow-xl flex flex-col modal-animate" onClick={e => e.stopPropagation()}>
+                                <div className="bg-white/60 p-4 sm:p-5 border-b border-slate-200/50 flex justify-between items-center relative">
+                                    <div className="absolute top-0 left-0 w-1.5 h-full bg-teal-500"></div>
+                                    <div className="font-bold text-slate-800 pl-2 text-lg sm:text-xl text-left break-all pr-4">{selected.id} <span className="text-sm sm:text-base text-teal-600 font-normal ml-2 whitespace-nowrap">用料明細</span></div>
+                                    <button onClick={() => setSelected(null)} className="text-slate-400 hover:text-teal-600 transition-colors shrink-0"><Icon name="x" className="w-5 h-5 sm:w-6 sm:h-6" /></button>
+                                </div>
+                                <div className="overflow-auto flex-1 p-4 sm:p-6 bg-transparent text-left">
+                                    <div className="bg-white/50 backdrop-blur-sm overflow-hidden border border-slate-200/50 shadow-sm rounded-lg">
+                                        <table className="w-full table-auto text-left text-sm sm:text-base text-slate-700">
+                                            <thead className="bg-white/60 sticky top-0 text-teal-800 font-bold uppercase text-[10px] sm:text-xs tracking-widest border-b border-slate-200/50">
+                                                <tr>
+                                                    <th className="p-3 sm:p-4 whitespace-nowrap">料號</th>
+                                                    <th className="p-3 sm:p-4 min-w-[200px]">品名規格</th>
+                                                    <th className="p-3 sm:p-4 text-center text-teal-700 whitespace-nowrap">領用需求</th>
+                                                    <th className="p-3 sm:p-4 text-center whitespace-nowrap">目前庫存</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-200/50">
+                                                {selected.items.map((i, idx) => (
+                                                    <tr key={idx} className={`hover:bg-teal-50/40 transition-colors ${i.status.includes('缺料') ? 'bg-red-50/40' : ''}`}>
+                                                        <td className={`p-3 sm:p-4 font-tech-mono break-all ${i.status.includes('缺料') ? 'text-red-600 font-bold flex items-start gap-2' : ''}`}>
+                                                            {i.status.includes('缺料') && <Icon name="alert" className="w-4 h-4 sm:w-5 sm:h-5 animate-pulse shrink-0 mt-0.5 text-red-500" />}
+                                                            <span>{i.partNo}</span>
+                                                        </td>
+                                                        <td className="p-3 sm:p-4 text-xs sm:text-sm font-sans leading-relaxed break-words text-slate-600">{i.spec}</td>
+                                                        <td className="p-3 sm:p-4 text-center font-bold text-teal-600 font-tech-mono text-base sm:text-lg whitespace-nowrap">{i.qty}</td>
+                                                        <td className={`p-3 sm:p-4 text-center font-tech-mono text-base sm:text-lg whitespace-nowrap ${i.status.includes('缺料') ? 'text-red-600 font-bold' : 'text-slate-500'}`}>{getDisplayStock(i.partNo, i.stockQty)}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const StockSystem = ({ title, data, showDataPanel = true, globalSearch }) => {
+            const [selected, setSelected] = useState(null);
+            
+            const filtered = useMemo(() => data.filter(i => !globalSearch || Object.values(i).some(v => String(v).toLowerCase().includes(globalSearch.toLowerCase()))), [data, globalSearch]);
+
+            return (
+                <div className="flex flex-col h-full p-4 sm:p-6 text-left">
+                    {data.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center flex-1 text-teal-600 p-8">
+                            <div className="content-panel rounded-full p-6 mb-6 border-slate-200">
+                                <Icon name="file-up" className="w-16 h-16 text-teal-500" />
+                            </div>
+                            <p className="text-base mt-3 text-teal-700 tracking-widest text-center font-mono">請手動上傳 Excel 資料</p>
+                        </div>
+                    ) : (
+                        <div className="content-panel flex-1 overflow-hidden flex flex-col">
+                            <div className="overflow-auto flex-1">
+                                <table className="w-full table-auto text-left border-collapse bg-white/40 backdrop-blur-sm">
+                                    <thead className="bg-white/60 sticky top-0 z-10 text-[10px] sm:text-sm font-bold text-teal-800 uppercase tracking-widest border-b border-white/50">
+                                        <tr>
+                                            <th className="p-3 sm:p-4 w-10 sm:w-12 text-center whitespace-nowrap">#</th>
+                                            <th className="p-3 sm:p-4 text-left min-w-[120px] break-all">料號</th>
+                                            <th className="p-3 sm:p-4 text-left min-w-[200px] break-words">品名</th>
+                                            <th className="p-3 sm:p-4 text-center bg-teal-50/70 text-teal-800 whitespace-nowrap border-x border-white/40">現有庫存</th>
+                                            {showDataPanel && <th className="p-3 sm:p-4 text-center whitespace-nowrap">數據面板</th>}
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-white/40 text-sm sm:text-base text-slate-700 font-mono">
+                                        {filtered.map((row, idx) => (
+                                            <tr key={idx} className="hover:bg-white/60 transition-colors">
+                                                <td className="p-3 sm:p-4 text-center text-slate-500 font-sans whitespace-nowrap">{idx + 1}</td>
+                                                <td className="p-3 sm:p-4 font-bold text-slate-800 text-left break-all">{row.id}</td>
+                                                <td className="p-3 sm:p-4 text-slate-600 text-[10px] sm:text-sm font-sans leading-relaxed break-words">{row.spec}</td>
+                                                <td className="p-3 sm:p-4 text-center font-black text-slate-800 text-base sm:text-lg bg-white/40 whitespace-nowrap border-x border-white/30">
+                                                    {title === '物料庫存' && Number(row.allUsageStock) < 0 ? 0 : row.allUsageStock}
+                                                </td>
+                                                {showDataPanel && (
+                                                    <td className="p-3 sm:p-4 text-center font-sans whitespace-nowrap">
+                                                        <button onClick={() => setSelected(row)} className="px-2 py-1 sm:px-3 sm:py-1.5 bg-blue-600 text-white border border-blue-700 rounded text-[10px] sm:text-xs font-bold hover:bg-blue-700 hover:shadow-md transition-colors shadow-sm whitespace-nowrap">季報與平均</button>
+                                                    </td>
+                                                )}
+                                            </tr>
+                                        ))}
+                                        {filtered.length === 0 && (
+                                            <tr><td colSpan={showDataPanel ? "5" : "4"} className="px-6 py-20 text-center text-slate-500 font-bold text-base sm:text-lg font-sans">查無相符資料</td></tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+                    {showDataPanel && selected && <YearlyDataModal item={selected} onClose={() => setSelected(null)} />}
+                </div>
+            );
+        };
+
+        // ==========================================
+        // 5. 主應用程式
+        // ==========================================
+        function App() {
+            const allOrderColumns = [
+                { id: 'shipDate', label: '預計出貨日期', keys: ['預計出貨日期', '預計出貨日', '實際出貨日期', '出貨日期', '實際出貨日'] },
+                { id: 'recvDate', label: '預計進貨日', keys: ['預計進貨日', '預計進貨日期', '收貨日期', '收貨日期(到貨日)', '(到貨日)', '到貨日'] },
+                { id: 'client', label: '客戶', keys: ['客戶'] },
+                { id: 'sales', label: '業務&終端', keys: ['業務&終端客戶', '業務'] },
+                { id: 'workOrder', label: '工單號碼', keys: ['工單號碼'] },
+                { id: 'purchaseOrder', label: '採購單號', keys: ['採購單號'] },
+                { id: 'bfPart', label: '博豐料號', keys: ['博豐料號'] },
+                { id: 'content', label: '作業內容', keys: ['作業內容'] },
+                { id: 'purchase', label: '代購品項', keys: ['代購品項'] },
+                { id: 'brand', label: '廠牌', keys: ['廠牌'] },
+                { id: 'model', label: '機種', keys: ['機種'] },
+                { id: 'qty', label: '作業數量', keys: ['作業數量', '數量', '作業\n數量'] },
+                { id: 'custPart', label: '客戶料號', keys: ['客戶料號', '客戶品號', 'Customer P/N', 'Customer PN', '料號', '品號'] },
+                { id: 'custPo', label: '客戶 PO NO.', keys: ['客戶 PO NO.', '客戶PO NO.', '客戶 PO NO', '客戶PO', 'PO NO', 'PO NO.', 'PO#', 'Customer PO'] },
+                { id: 'fileSource', label: '檔案來源', keys: [] }, 
+                { id: 'notes', label: '作業注意事項', keys: ['作業注意事項', '注意事項', '作業注意'] },
+                { id: 'remarks', label: '備註', keys: ['備註', '備註欄'] }
+            ];
+
+            const [module, setModule] = useState('materialInventory'); 
+            const [isUploading, setIsUploading] = useState(false); 
+            const [msg, setMsg] = useState(null);
+            
+            const [globalSearch, setGlobalSearch] = useState('');
+            const [dates, setDates] = useState({ start: '', end: '' });
+            const [onlyShortage, setOnlyShortage] = useState(false);
+
+            const [orderState, setOrderState] = useState({ data: [], files: [] });
+            
+            const [invState, setInvState] = useState({ 
+                data: { workOrders: [], issued: [], pendingShipment: [], materialInventory: [], consumableInventory: [] }, 
+                files: [] 
+            });
+
+            const moduleCounts = useMemo(() => {
+                const s = globalSearch.trim().toLowerCase();
+                const countMatches = (dataArray) => {
+                    if (!dataArray) return 0;
+                    if (!s) return dataArray.length;
+                    return dataArray.filter(i => Object.values(i).some(v => String(v).toLowerCase().includes(s))).length;
+                };
+
+                const orderMatch = countMatches(orderState.data);
+
+                let invMatch = 0;
+                if (!s) {
+                    const groups = new Set();
+                    ['workOrders', 'issued', 'pendingShipment'].forEach(key => {
+                        (invState.data[key] || []).forEach(item => {
+                            if (item.id) groups.add(item.id);
+                        });
+                    });
+                    invMatch = groups.size;
+                } else {
+                    const groups = {};
+                    ['workOrders', 'issued', 'pendingShipment'].forEach(key => {
+                        (invState.data[key] || []).forEach(item => {
+                            const id = item.id || '未知單號';
+                            if (!groups[id]) groups[id] = { id, customer: item.customer || '', mainSpec: item.spec || '' };
+                        });
+                    });
+                    invMatch = Object.values(groups).filter(g => 
+                        g.id.toLowerCase().includes(s) || g.customer.toLowerCase().includes(s) || g.mainSpec.toLowerCase().includes(s)
+                    ).length;
+                }
+
+                return { 
+                    order: orderMatch, 
+                    inventory: invMatch, 
+                    materialInventory: countMatches(invState.data.materialInventory), 
+                    consumableInventory: countMatches(invState.data.consumableInventory) 
+                };
+            }, [orderState.data, invState.data, globalSearch]);
+
+            const onUploadOrder = async (files) => {
+                if (!files || files.length === 0) return;
+                setIsUploading(true); setMsg({ type: 'info', text: '正在讀取訂單...' });
+                try {
+                    const results = await Promise.all(files.map(file => readExcelFile(file).then(workbook => parseOrderData(workbook, allOrderColumns))));
+                    let merged = [];
+                    results.forEach(res => { merged = [...merged, ...res.data]; });
+                    setOrderState({ data: merged, files: files.map(f => f.name) });
+                    setMsg({ type: 'success', text: '成功載入訂單檔案' });
+                } catch (err) { 
+                    console.error(err);
+                    setMsg({ type: 'error', text: '上傳失敗：檔案格式或結構不符' }); 
+                }
+                finally { setIsUploading(false); setTimeout(() => setMsg(null), 5000); }
+            };
+
+            const onUploadInv = async (files) => {
+                if (!files || files.length === 0) return;
+                setIsUploading(true); setMsg({ type: 'info', text: '正在讀取用料明細庫存資料...' });
+                try {
+                    const results = await Promise.all(files.map(file => readExcelFile(file).then(workbook => parseInventoryData(workbook))));
+                    let merged = { 
+                        workOrders: [], 
+                        issued: [], 
+                        pendingShipment: [], 
+                        materialInventory: [],
+                        consumableInventory: []
+                    };
+                    results.forEach(res => {
+                        merged.workOrders = [...merged.workOrders, ...res.data.workOrders];
+                        merged.issued = [...merged.issued, ...res.data.issued];
+                        merged.pendingShipment = [...merged.pendingShipment, ...res.data.pendingShipment];
+                        merged.materialInventory = [...merged.materialInventory, ...res.data.materialInventory];
+                        merged.consumableInventory = [...merged.consumableInventory, ...res.data.consumableInventory];
+                    });
+                    setInvState({ data: merged, files: files.map(f => f.name) });
+                    setMsg({ type: 'success', text: '成功解析庫存與用料資料' });
+                } catch (err) { 
+                    console.error(err);
+                    setMsg({ type: 'error', text: '上傳失敗：資料解析錯誤' }); 
+                }
+                finally { setIsUploading(false); setTimeout(() => setMsg(null), 5000); }
+            };
+
+            const getSearchPlaceholder = () => {
+                if (module === 'order') return "搜尋客戶 / 工單 / 料號...";
+                if (module === 'inventory') return "搜尋單號 / 客戶 / 規格...";
+                return "搜尋料號 / 品名...";
+            };
+
+            const currentFiles = module === 'order' ? orderState.files : invState.files;
+
+            return (
+                <div className="h-screen w-full flex flex-col overflow-hidden bg-transparent font-sans text-slate-800">
+                    <header className="content-panel rounded-none border-x-0 border-t-0 border-b border-slate-200 shrink-0 z-20 relative flex flex-col">
+                        <div className="px-4 py-3 flex flex-wrap items-center gap-3">
+                            {/* Logo & Title */}
+                            <div className="flex items-center gap-2 shrink-0 md:mr-2">
+                                <div className="w-8 h-8 bg-teal-50 border border-teal-200 rounded-lg flex items-center justify-center shadow-sm">
+                                    <Icon name="layers" className="w-5 h-5 text-teal-600" />
+                                </div>
+                                <h1 className="text-2xl sm:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-teal-600 to-emerald-500 uppercase tracking-tighter hidden md:block drop-shadow-sm">綜合查詢</h1>
+                            </div>
+
+                            {/* Module Nav */}
+                            <div className="shrink-0 max-w-full overflow-x-auto no-scrollbar">
+                                <ModuleNav module={module} setModule={setModule} counts={moduleCounts} globalSearch={globalSearch} />
+                            </div>
+
+                            {/* Search Box */}
+                            <div className="relative flex-1 min-w-[250px] max-w-xl shrink-0">
+                                <input 
+                                    type="text" 
+                                    placeholder={getSearchPlaceholder()} 
+                                    className="w-full bg-white/70 backdrop-blur-md border border-slate-200 rounded-lg py-2 pl-4 pr-10 text-base focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none text-slate-800 placeholder-slate-500 transition-all shadow-sm" 
+                                    value={globalSearch} 
+                                    onChange={e => setGlobalSearch(e.target.value)} 
+                                />
+                                {globalSearch && (
+                                    <button className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-teal-500 transition-colors" onClick={() => setGlobalSearch('')}>
+                                        <Icon name="x" className="w-5 h-5" />
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Dynamic Actions */}
+                            <div className="flex flex-wrap items-center gap-2 md:ml-auto shrink-0">
+                                {module === 'order' && (
+                                    <div className="flex items-center gap-2 text-base text-slate-600 bg-white/70 backdrop-blur-md p-1.5 rounded-lg border border-slate-200 shadow-sm">
+                                        <Icon name="calendar" className="text-teal-500 w-5 h-5 ml-1" />
+                                        <input type="date" className="bg-transparent border-none text-slate-800 font-mono text-sm sm:text-base outline-none cursor-pointer" style={{colorScheme: 'light'}} value={dates.start} onChange={e => setDates({...dates, start: e.target.value})} />
+                                        <span className="text-sm font-bold text-slate-400">~</span>
+                                        <input type="date" className="bg-transparent border-none text-slate-700 font-mono text-sm sm:text-base outline-none cursor-pointer" style={{colorScheme: 'light'}} value={dates.end} onChange={e => setDates({...dates, end: e.target.value})} />
+                                        {(dates.start || dates.end) && <button onClick={() => setDates({start:'', end:''})} className="text-red-600 hover:bg-red-50 hover:text-red-700 px-2 py-1 rounded border border-red-300 transition-colors text-xs font-bold shadow-sm ml-1">清除</button>}
+                                    </div>
+                                )}
+
+                                {module === 'inventory' && (
+                                    <button onClick={() => setOnlyShortage(!onlyShortage)} className={`px-3 py-1.5 rounded-lg text-sm font-bold border transition-all whitespace-nowrap shadow-sm ${onlyShortage ? 'bg-red-50 border-red-300 text-red-600' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-teal-600'}`}>
+                                        <div className="flex items-center gap-1"><Icon name="alert" className="w-4 h-4" /> 只看缺料</div>
+                                    </button>
+                                )}
+
+                                {/* 四個模組共用上傳按鈕 */}
+                                <label className={`px-3 py-1.5 bg-slate-700 border border-slate-700 text-white rounded-lg text-sm font-bold flex items-center gap-1.5 shadow-md transition-all whitespace-nowrap ${isUploading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-slate-800'}`}>
+                                    <Icon name="upload" className={isUploading ? "w-4 h-4 animate-bounce text-white" : "w-4 h-4 text-white/90"} /> {isUploading ? '處理中...' : '上傳 Excel'}
+                                    <input type="file" multiple accept=".xlsx, .xls, .csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel, text/csv" className="hidden" onChange={e => { 
+                                        const files = Array.from(e.target.files);
+                                        if (files.length === 0) return;
+                                        // 判斷當前模組，交由不同的 Parser 處理
+                                        if (module === 'order') onUploadOrder(files);
+                                        else onUploadInv(files);
+                                        e.target.value=''; 
+                                    }} disabled={isUploading} />
+                                </label>
+                            </div>
+                        </div>
+
+                        {/* Status / Message Bar (Compact) */}
+                        {(currentFiles.length > 0 || msg) && (
+                            <div className="px-4 py-1.5 bg-white/40 backdrop-blur-sm border-t border-slate-200/50 flex items-center gap-3 text-[10px] sm:text-xs font-mono text-slate-600 overflow-x-auto no-scrollbar">
+                                {currentFiles.length > 0 && (
+                                    <span className="text-teal-800 bg-teal-100/80 px-2 py-0.5 rounded border border-teal-200/50 whitespace-nowrap">
+                                        來源: {currentFiles.join(', ')}
+                                    </span>
+                                )}
+                                {msg && (
+                                    <span className={`font-bold px-2 py-0.5 rounded border whitespace-nowrap ${msg.type === 'success' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : msg.type === 'info' ? 'bg-teal-50 text-teal-700 border-teal-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                                        {msg.text}
+                                    </span>
+                                )}
+                            </div>
+                        )}
+                    </header>
+
+                    <main className="flex-1 relative p-4 md:p-6 overflow-hidden">
+                        <div className={`absolute inset-4 md:inset-6 transition-opacity duration-300 ${module === 'order' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
+                            <OrderSystem data={orderState.data} columns={allOrderColumns} globalSearch={globalSearch} dates={dates} />
+                        </div>
+                        <div className={`absolute inset-4 md:inset-6 transition-opacity duration-300 ${module === 'inventory' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
+                            <InventorySystem data={invState.data} globalSearch={globalSearch} onlyShortage={onlyShortage} />
+                        </div>
+                        <div className={`absolute inset-4 md:inset-6 transition-opacity duration-300 ${module === 'materialInventory' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
+                            <StockSystem title="物料庫存" data={invState.data.materialInventory || []} showDataPanel={true} globalSearch={globalSearch} />
+                        </div>
+                        <div className={`absolute inset-4 md:inset-6 transition-opacity duration-300 ${module === 'consumableInventory' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
+                            <StockSystem title="耗材庫存" data={invState.data.consumableInventory || []} showDataPanel={false} globalSearch={globalSearch} />
+                        </div>
+                    </main>
+                </div>
+            );
+        }
+        const root = ReactDOM.createRoot(document.getElementById('root')); root.render(<App />);
+    </script>
+</body>
+</html>
