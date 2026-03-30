@@ -872,10 +872,22 @@
             );
         };
 
-        const StockSystem = ({ title, data, showDataPanel = true, globalSearch }) => {
+        const StockSystem = ({ title, data, showDataPanel = true, globalSearch, safetySearch }) => {
             const [selected, setSelected] = useState(null);
             
-            const filtered = useMemo(() => data.filter(i => !globalSearch || Object.values(i).some(v => String(v).toLowerCase().includes(globalSearch.toLowerCase()))), [data, globalSearch]);
+            const filtered = useMemo(() => data.filter(i => {
+                const s = (globalSearch || '').trim().toLowerCase();
+                const matchesGlobal = !s || Object.values(i).some(v => String(v).toLowerCase().includes(s));
+                
+                let matchesSafety = true;
+                if (title === '物料庫存' && safetySearch && safetySearch.trim() !== '') {
+                    const parsedSafety = parseFloat(i.safetyStock);
+                    const displaySafety = isNaN(parsedSafety) ? 0 : Math.round(parsedSafety);
+                    matchesSafety = String(displaySafety).includes(safetySearch.trim());
+                }
+                
+                return matchesGlobal && matchesSafety;
+            }), [data, globalSearch, safetySearch, title]);
 
             return (
                 <div className="flex flex-col h-full p-4 sm:p-6 text-left">
@@ -970,6 +982,7 @@
             const [msg, setMsg] = useState(null);
             
             const [globalSearch, setGlobalSearch] = useState('');
+            const [safetySearch, setSafetySearch] = useState(''); // 新增安全庫存搜尋狀態
             const [dates, setDates] = useState({ start: '', end: '' });
             const [onlyShortage, setOnlyShortage] = useState(false);
 
@@ -982,13 +995,23 @@
 
             const moduleCounts = useMemo(() => {
                 const s = globalSearch.trim().toLowerCase();
-                const countMatches = (dataArray) => {
+                const ss = safetySearch.trim();
+
+                const countMatches = (dataArray, applySafety = false) => {
                     if (!dataArray) return 0;
-                    if (!s) return dataArray.length;
-                    return dataArray.filter(i => Object.values(i).some(v => String(v).toLowerCase().includes(s))).length;
+                    return dataArray.filter(i => {
+                        const matchesGlobal = !s || Object.values(i).some(v => String(v).toLowerCase().includes(s));
+                        let matchesSafety = true;
+                        if (applySafety && ss) {
+                            const parsedSafety = parseFloat(i.safetyStock);
+                            const displaySafety = isNaN(parsedSafety) ? 0 : Math.round(parsedSafety);
+                            matchesSafety = String(displaySafety).includes(ss);
+                        }
+                        return matchesGlobal && matchesSafety;
+                    }).length;
                 };
 
-                const orderMatch = countMatches(orderState.data);
+                const orderMatch = countMatches(orderState.data, false);
 
                 let invMatch = 0;
                 if (!s) {
@@ -1015,10 +1038,10 @@
                 return { 
                     order: orderMatch, 
                     inventory: invMatch, 
-                    materialInventory: countMatches(invState.data.materialInventory), 
-                    consumableInventory: countMatches(invState.data.consumableInventory) 
+                    materialInventory: countMatches(invState.data.materialInventory, true), 
+                    consumableInventory: countMatches(invState.data.consumableInventory, false) 
                 };
-            }, [orderState.data, invState.data, globalSearch]);
+            }, [orderState.data, invState.data, globalSearch, safetySearch]);
 
             const onUploadOrder = async (files) => {
                 if (!files || files.length === 0) return;
@@ -1107,6 +1130,25 @@
 
                             {/* Dynamic Actions */}
                             <div className="flex flex-wrap items-center gap-2 md:ml-auto shrink-0">
+                                
+                                {/* 安全庫存搜尋框 (僅限物料庫存) */}
+                                {module === 'materialInventory' && (
+                                    <div className="relative w-32 sm:w-40 shrink-0">
+                                        <input 
+                                            type="text" 
+                                            placeholder="搜尋安全庫存..." 
+                                            className="w-full bg-orange-50/50 backdrop-blur-md border border-orange-200 rounded-lg py-1.5 pl-3 pr-8 text-sm focus:ring-2 focus:ring-orange-400 focus:border-orange-400 outline-none text-slate-800 placeholder-orange-600/50 transition-all shadow-sm" 
+                                            value={safetySearch} 
+                                            onChange={e => setSafetySearch(e.target.value)} 
+                                        />
+                                        {safetySearch && (
+                                            <button className="absolute right-2 top-1/2 -translate-y-1/2 text-orange-400 hover:text-orange-600 transition-colors" onClick={() => setSafetySearch('')}>
+                                                <Icon name="x" className="w-4 h-4" />
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
+
                                 {module === 'order' && (
                                     <div className="flex items-center gap-2 text-base text-slate-600 bg-white/70 backdrop-blur-md p-1.5 rounded-lg border border-slate-200 shadow-sm">
                                         <Icon name="calendar" className="text-teal-500 w-5 h-5 ml-1" />
@@ -1163,10 +1205,10 @@
                             <InventorySystem data={invState.data} globalSearch={globalSearch} onlyShortage={onlyShortage} />
                         </div>
                         <div className={`absolute inset-4 md:inset-6 transition-opacity duration-300 ${module === 'materialInventory' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
-                            <StockSystem title="物料庫存" data={invState.data.materialInventory || []} showDataPanel={true} globalSearch={globalSearch} />
+                            <StockSystem title="物料庫存" data={invState.data.materialInventory || []} showDataPanel={true} globalSearch={globalSearch} safetySearch={safetySearch} />
                         </div>
                         <div className={`absolute inset-4 md:inset-6 transition-opacity duration-300 ${module === 'consumableInventory' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
-                            <StockSystem title="耗材庫存" data={invState.data.consumableInventory || []} showDataPanel={false} globalSearch={globalSearch} />
+                            <StockSystem title="耗材庫存" data={invState.data.consumableInventory || []} showDataPanel={false} globalSearch={globalSearch} safetySearch={safetySearch} />
                         </div>
                     </main>
                 </div>
