@@ -113,6 +113,22 @@
             return foundKey ? row[foundKey] : 0;
         };
 
+        const getVal = (row, exactMatches, includeMatches = []) => {
+            const keys = Object.keys(row);
+            for (let t of exactMatches) if (row[t] !== undefined && String(row[t]).trim() !== '') return row[t];
+            for (let t of exactMatches) {
+                const cleanT = cleanKey(t);
+                const found = keys.find(k => cleanKey(k) === cleanT);
+                if (found && row[found] !== undefined && String(row[found]).trim() !== '') return row[found];
+            }
+            for (let t of includeMatches) {
+                const cleanT = cleanKey(t);
+                const found = keys.find(k => cleanKey(k).includes(cleanT));
+                if (found && row[found] !== undefined && String(row[found]).trim() !== '') return row[found];
+            }
+            return ''; 
+        };
+
         const getGroupedAndFilteredData = (data, search, shortageOnly) => {
             if (!data || data.length === 0) return [];
             const groups = {};
@@ -180,7 +196,8 @@
                 'file-up': <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z m-6 11 3-3 3 3m-3-3v6" />,
                 database: <React.Fragment><ellipse cx="12" cy="5" rx="9" ry="3" /><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" /><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" /></React.Fragment>,
                 shopping: <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4H6z M3 6h18 M16 10a4 4 0 0 1-8 0" />,
-                'file-warning': <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z M12 9v4 M12 17h.01" />
+                'file-warning': <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z M12 9v4 M12 17h.01" />,
+                cloud: <path d="M17.5 19c2.5 0 4.5-2 4.5-4.5 0-2-1.5-3.5-3.5-4-.5-4-4-7-8.5-7-3.5 0-6.5 2-7.5 5-2 .5-4 2-4 4.5C1 17 3 19 5.5 19h12z" />
             };
             return (
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" className={className}>
@@ -207,6 +224,87 @@
         // ==========================================
         // 3. 解析器邏輯
         // ==========================================
+
+        // 將 API 回傳的 JSON 陣列映射到內部的 invState
+        const processJsonToInvState = (jsonArray) => {
+            const result = { purchaseInfo: [], workOrders: [], issued: [], pendingShipment: [], materialInventory: [], consumableInventory: [] };
+            
+            if (!Array.isArray(jsonArray)) return result;
+
+            jsonArray.forEach(row => {
+                // 判斷該行屬於哪一類 (依據關鍵欄位特徵)
+                const keys = Object.keys(row).map(k => cleanKey(k));
+                
+                // 1. 進貨表特徵 (包含進貨日期、客戶、工單號碼)
+                if (keys.includes('進貨日期') && keys.includes('客戶') && keys.includes('工單號碼')) {
+                    result.purchaseInfo.push({
+                        date: processDateValue(getVal(row, ['進貨日期'])),
+                        customer: getVal(row, ['客戶']),
+                        workOrder: getVal(row, ['工單號碼']),
+                        purchaseOrder: getVal(row, ['採購單號']),
+                        partNo: getVal(row, ['料號', '品號']),
+                        model: getVal(row, ['機種']),
+                        qty: getVal(row, ['數量']),
+                        status: getVal(row, ['狀態']),
+                        note: getVal(row, ['備註'])
+                    });
+                }
+                // 2. 庫存特徵 (包含安全庫存)
+                else if (keys.includes('安全庫存') || keys.includes('安全庫存量')) {
+                    const yearlyData = {};
+                    [2025, 2026, 2027, 2028, 2029, 2030].forEach(yr => {
+                        yearlyData[yr] = {
+                            usage: getVal(row, [`${yr}用量`, `${yr}年度用量`], [`${yr}用量`]),
+                            q1: getVal(row, [`${yr}第一季`, `${yr}第1季`, `${yr}1季`, `${yr}q1`], [`${yr}第一季`, `${yr}第1季`, `${yr}1季`, `${yr}q1`]),
+                            q2: getVal(row, [`${yr}第二季`, `${yr}第2季`, `${yr}2季`, `${yr}q2`], [`${yr}第二季`, `${yr}第2季`, `${yr}2季`, `${yr}q2`]),
+                            q3: getVal(row, [`${yr}第三季`, `${yr}第3季`, `${yr}3季`, `${yr}q3`], [`${yr}第三季`, `${yr}第3季`, `${yr}3季`, `${yr}q3`]),
+                            q4: getVal(row, [`${yr}第四季`, `${yr}第4季`, `${yr}4季`, `${yr}q4`], [`${yr}第四季`, `${yr}第4季`, `${yr}4季`, `${yr}q4`]),
+                            avg: getVal(row, [`${yr}平均值`, `${yr}平均`], [`${yr}平均`])
+                        };
+                    });
+                    result.materialInventory.push({
+                        id: getVal(row, ['料號', '品號', 'partno'], ['料號', '品號']),
+                        spec: getVal(row, ['品名', '品名規格'], ['品名', '規格']),
+                        allUsageStock: getVal(row, ['ALL工單用量', 'All工單用量', 'all工單用量', 'ALL工單用量庫存'], ['all工單用量', 'all用量', 'all供單用量', '工單用量']),
+                        safetyStock: getVal(row, ['安全庫存', '安全庫存量'], ['安全庫存']),
+                        yearlyData
+                    });
+                }
+                // 3. 耗材特徵 (包含耗材關鍵字，或者只有品名規格與庫存且無安全庫存)
+                else if (keys.includes('庫存數量') || (keys.includes('品名') && keys.includes('庫存') && !keys.includes('安全庫存'))) {
+                    result.consumableInventory.push({
+                        id: getVal(row, ['料號', '品號', 'partno'], ['料號', '品號']),
+                        spec: getVal(row, ['品名', '品名規格'], ['品名', '規格']),
+                        allUsageStock: getVal(row, ['庫存數量', '庫存', '現有庫存'], ['庫存數量', '庫存']),
+                        yearlyData: {}
+                    });
+                }
+                // 4. 用料明細 (工單/領料)
+                else if (keys.includes('單號') || keys.includes('工單') || keys.includes('單據編號')) {
+                    const item = {
+                        id: getVal(row, ['單據編號', '單號', '工單號碼', '工單']),
+                        customer: getVal(row, ['客戶名稱', '客戶']),
+                        partNo: getVal(row, ['NS料號', '博豐料號', '料號', '品號']),
+                        spec: getVal(row, ['品名規格', '品名', '機種']),
+                        qty: parseFloat(getQtyValue(row, '用料表數量')) || 0,
+                        plannedQty: parseFloat(getQtyValue(row, '用料表數量')) || 0,
+                        stockQty: parseFloat(getQtyValue(row, '庫存')) || 0,
+                        status: getVal(row, ['狀態']),
+                        note: getVal(row, ['備註', '注意事項']),
+                        recvDate: processDateValue(getVal(row, ['預計進貨', '收貨日', '進貨資訊'])),
+                        shipDate: processDateValue(getVal(row, ['預計出貨', '出貨日', '出貨資訊']))
+                    };
+
+                    // 簡易分類邏輯
+                    if (item.status.includes('已發放')) result.issued.push(item);
+                    else if (item.status.includes('待出貨')) result.pendingShipment.push(item);
+                    else result.workOrders.push(item);
+                }
+            });
+
+            return result;
+        };
+
         const parseOrderData = (workbook, allColumns) => {
             const targetSheetNames = ["改裝、維修 訂單-未出", "改裝、維修 訂單-已出", "工程驗證", "雜項-未出"];
             const foundSheets = workbook.SheetNames.filter(name => targetSheetNames.includes(name));
@@ -345,22 +443,6 @@
 
                 if (json.length === 0) return;
                 
-                const getVal = (row, exactMatches, includeMatches = []) => {
-                    const keys = Object.keys(row);
-                    for (let t of exactMatches) if (row[t] !== undefined && String(row[t]).trim() !== '') return row[t];
-                    for (let t of exactMatches) {
-                        const cleanT = cleanKey(t);
-                        const found = keys.find(k => cleanKey(k) === cleanT);
-                        if (found && row[found] !== undefined && String(row[found]).trim() !== '') return row[found];
-                    }
-                    for (let t of includeMatches) {
-                        const cleanT = cleanKey(t);
-                        const found = keys.find(k => cleanKey(k).includes(cleanT));
-                        if (found && row[found] !== undefined && String(row[found]).trim() !== '') return row[found];
-                    }
-                    return ''; 
-                };
-
                 if (exactName === '進貨表') {
                     foundNames.push(sheetName);
                     const parsed = json.map(row => ({
@@ -403,15 +485,11 @@
                 else if (exactName === '耗材-庫') {
                     foundNames.push(sheetName);
                     const parsed = json.map(row => {
-                        const yearlyData = {};
-                        [2025, 2026, 2027, 2028, 2029, 2030].forEach(yr => {
-                            yearlyData[yr] = { usage: '', q1: '', q2: '', q3: '', q4: '', avg: '' };
-                        });
                         return {
                             id: getVal(row, ['料號', '品號', 'partno'], ['料號', '品號']),
                             spec: getVal(row, ['品名', '品名規格'], ['品名', '規格']),
                             allUsageStock: getVal(row, ['庫存數量', '庫存', '現有庫存'], ['庫存數量', '庫存']),
-                            yearlyData
+                            yearlyData: {}
                         };
                     });
                     result.consumableInventory = parsed.filter(item => item.id || item.spec);
@@ -472,7 +550,6 @@
                 return list;
             }, [data, globalSearch, onlyAbnormal]);
 
-            // 修改欄位順序：狀態移動到備註右邊
             const columns = [
                 { id: 'date', label: '進貨日期' },
                 { id: 'customer', label: '客戶' },
@@ -492,7 +569,7 @@
                             <div className="content-panel rounded-full p-8 mb-6 border-slate-200">
                                 <Icon name="shopping" className="w-20 h-20 text-teal-500" />
                             </div>
-                            <p className="text-lg mt-4 text-teal-700 tracking-widest text-center font-mono">請上傳包含「進貨表」的 Excel 資料</p>
+                            <p className="text-lg mt-4 text-teal-700 tracking-widest text-center font-mono">請同步雲端資料或上傳包含「進貨表」的 Excel</p>
                         </div>
                     ) : (
                         <div className="content-panel flex-1 overflow-hidden flex flex-col">
@@ -590,16 +667,16 @@
                                 </thead>
                                 <tbody className="text-base font-mono divide-y divide-slate-200/50 text-slate-700">
                                     {years.map(yr => {
-                                        const d = item.yearlyData[yr] || {};
+                                        const d = item.yearlyData ? (item.yearlyData[yr] || {}) : {};
                                         return (
                                             <tr key={yr} className="hover:bg-teal-50/40 transition-colors">
                                                 <td className="px-4 py-4 font-bold text-slate-800 font-sans whitespace-nowrap">{yr}</td>
-                                                <td className="px-4 py-4 font-black text-teal-600 text-lg whitespace-nowrap">{d.usage}</td>
-                                                <td className="px-4 py-4 whitespace-nowrap">{d.q1}</td>
-                                                <td className="px-4 py-4 whitespace-nowrap">{d.q2}</td>
-                                                <td className="px-4 py-4 whitespace-nowrap">{d.q3}</td>
-                                                <td className="px-4 py-4 whitespace-nowrap">{d.q4}</td>
-                                                <td className="px-4 py-4 font-bold text-emerald-600 text-lg whitespace-nowrap">{d.avg}</td>
+                                                <td className="px-4 py-4 font-black text-teal-600 text-lg whitespace-nowrap">{d.usage || '-'}</td>
+                                                <td className="px-4 py-4 whitespace-nowrap">{d.q1 || '-'}</td>
+                                                <td className="px-4 py-4 whitespace-nowrap">{d.q2 || '-'}</td>
+                                                <td className="px-4 py-4 whitespace-nowrap">{d.q3 || '-'}</td>
+                                                <td className="px-4 py-4 whitespace-nowrap">{d.q4 || '-'}</td>
+                                                <td className="px-4 py-4 font-bold text-emerald-600 text-lg whitespace-nowrap">{d.avg || '-'}</td>
                                             </tr>
                                         );
                                     })}
@@ -790,7 +867,7 @@
                             <div className="content-panel rounded-full p-6 mb-6 border-slate-200">
                                 <Icon name="file-up" className="w-16 h-16 text-teal-500" />
                             </div>
-                            <p className="text-base mt-3 text-teal-700 tracking-widest text-center font-mono">請手動上傳用料明細 Excel 資料</p>
+                            <p className="text-base mt-3 text-teal-700 tracking-widest text-center font-mono">請同步雲端資料或上傳用料明細 Excel</p>
                         </div>
                     ) : (
                         <>
@@ -955,7 +1032,7 @@
                             <div className="content-panel rounded-full p-6 mb-6 border-slate-200">
                                 <Icon name="file-up" className="w-16 h-16 text-teal-500" />
                             </div>
-                            <p className="text-base mt-3 text-teal-700 tracking-widest text-center font-mono">請手動上傳 Excel 資料</p>
+                            <p className="text-base mt-3 text-teal-700 tracking-widest text-center font-mono">請同步雲端資料或上傳 Excel</p>
                         </div>
                     ) : (
                         <div className="content-panel flex-1 overflow-hidden flex flex-col">
@@ -1036,6 +1113,7 @@
 
             const [module, setModule] = useState('purchaseInfo'); 
             const [isUploading, setIsUploading] = useState(false); 
+            const [isSyncing, setIsSyncing] = useState(false);
             const [msg, setMsg] = useState(null);
             const [globalSearch, setGlobalSearch] = useState('');
             const [safetySearch, setSafetySearch] = useState(''); 
@@ -1048,6 +1126,35 @@
                 data: { purchaseInfo: [], workOrders: [], issued: [], pendingShipment: [], materialInventory: [], consumableInventory: [] }, 
                 files: [] 
             });
+
+            // API 網址
+            const API_URL = "https://defaultc88f0a0ed1474693bc04daf56552e7.cf.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/2cfbcaac8541498597a2a40da6b3f0d5/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=bLeQEKahjZYgyBDZ8d9IKQr1YSWTvUWwqfnAJXFqRQM";
+
+            // 從 API 同步資料
+            const syncFromApi = async () => {
+                setIsSyncing(true);
+                setMsg({ type: 'info', text: '正在連線雲端資料源...' });
+                try {
+                    const response = await fetch(API_URL);
+                    if (!response.ok) throw new Error('連線失敗');
+                    
+                    const json = await response.json();
+                    const processedData = processJsonToInvState(json);
+                    
+                    setInvState({
+                        data: processedData,
+                        files: ['Cloud API Source']
+                    });
+                    
+                    setMsg({ type: 'success', text: `同步完成！載入 ${json.length} 筆資料` });
+                } catch (err) {
+                    console.error(err);
+                    setMsg({ type: 'error', text: '雲端同步失敗，請確認網路連線' });
+                } finally {
+                    setIsSyncing(false);
+                    setTimeout(() => setMsg(null), 5000);
+                }
+            };
 
             const moduleCounts = useMemo(() => {
                 const s = globalSearch.trim().toLowerCase();
@@ -1205,6 +1312,19 @@
                                         <div className="flex items-center gap-1.5"><Icon name="file-warning" className="w-4 h-4" /> 異常狀態</div>
                                     </button>
                                 )}
+                                
+                                {/* 雲端同步按鈕 (套用於群組1~4) */}
+                                {['purchaseInfo', 'materialInventory', 'consumableInventory', 'inventory'].includes(module) && (
+                                    <button 
+                                        onClick={syncFromApi} 
+                                        disabled={isSyncing}
+                                        className={`px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-bold flex items-center gap-1.5 shadow-md transition-all whitespace-nowrap ${isSyncing ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-700'}`}
+                                    >
+                                        <Icon name={isSyncing ? 'loader' : 'cloud'} className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                                        {isSyncing ? '同步中...' : '同步雲端'}
+                                    </button>
+                                )}
+
                                 <label className={`px-3 py-1.5 bg-slate-700 text-white rounded-lg text-sm font-bold flex items-center gap-1.5 shadow-md transition-all whitespace-nowrap ${isUploading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-slate-800'}`}>
                                     <Icon name="upload" className="w-4 h-4 text-white" /> {isUploading ? '處理中...' : '上傳 Excel'}
                                     <input type="file" multiple accept=".xlsx, .xls, .csv" className="hidden" onChange={e => { 
@@ -1219,7 +1339,7 @@
                         {(currentFiles.length > 0 || msg) && (
                             <div className="px-4 py-1.5 bg-white/40 backdrop-blur-sm border-t border-slate-200/50 flex items-center gap-3 text-[10px] sm:text-xs font-mono text-slate-600 overflow-x-auto no-scrollbar">
                                 {currentFiles.length > 0 && <span className="text-teal-800 bg-teal-100/80 px-2 py-0.5 rounded border border-teal-200/50 whitespace-nowrap">來源: {currentFiles.join(', ')}</span>}
-                                {msg && <span className={`font-bold px-2 py-0.5 rounded border whitespace-nowrap ${msg.type === 'success' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'}`}>{msg.text}</span>}
+                                {msg && <span className={`font-bold px-2 py-0.5 rounded border whitespace-nowrap ${msg.type === 'success' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : (msg.type === 'info' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-red-50 text-red-700 border-red-200')}`}>{msg.text}</span>}
                             </div>
                         )}
                     </header>
