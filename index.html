@@ -244,7 +244,7 @@
                         purchaseOrder: getVal(row, ['採購單號']),
                         partNo: getVal(row, ['料號', '品號']),
                         model: getVal(row, ['機種']),
-                        qty: getVal(row, ['數量']),
+                        qty: getVal(row, ['進貨數量', '數量']), // 優先抓取進貨數量
                         status: getVal(row, ['狀態']),
                         note: getVal(row, ['備註'])
                     });
@@ -452,7 +452,7 @@
                         purchaseOrder: getVal(row, ['採購單號']),
                         partNo: getVal(row, ['料號', '品號']),
                         model: getVal(row, ['機種']),
-                        qty: getVal(row, ['數量']),
+                        qty: getVal(row, ['進貨數量', '數量']), // 優先抓取進貨數量
                         status: getVal(row, ['狀態']), 
                         note: getVal(row, ['備註'])
                     })).filter(i => i.date || i.customer || i.workOrder);
@@ -557,7 +557,7 @@
                 { id: 'purchaseOrder', label: '採購單號' },
                 { id: 'partNo', label: '料號' },
                 { id: 'model', label: '機種' },
-                { id: 'qty', label: '數量' },
+                { id: 'qty', label: '進貨數量' },
                 { id: 'note', label: '備註' },
                 { id: 'status', label: '狀態' } 
             ];
