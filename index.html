@@ -1141,12 +1141,17 @@
                     const json = await response.json();
                     const processedData = processJsonToInvState(json);
                     
-                    setInvState({
-                        data: processedData,
-                        files: ['Cloud API Source']
-                    });
+                    // 修改處：只更新進貨資訊(purchaseInfo)，保留其他可能手動上傳的資料不被覆蓋
+                    setInvState(prev => ({
+                        ...prev,
+                        data: {
+                            ...prev.data,
+                            purchaseInfo: processedData.purchaseInfo
+                        },
+                        files: prev.files.includes('Cloud API Source') ? prev.files : [...prev.files, 'Cloud API Source']
+                    }));
                     
-                    setMsg({ type: 'success', text: `同步完成！載入 ${json.length} 筆資料` });
+                    setMsg({ type: 'success', text: `同步完成！載入 ${processedData.purchaseInfo.length} 筆進貨資料` });
                 } catch (err) {
                     console.error(err);
                     setMsg({ type: 'error', text: '雲端同步失敗，請確認網路連線' });
@@ -1313,8 +1318,8 @@
                                     </button>
                                 )}
                                 
-                                {/* 雲端同步按鈕 (套用於群組1~4) */}
-                                {['purchaseInfo', 'materialInventory', 'consumableInventory', 'inventory'].includes(module) && (
+                                {/* 雲端同步按鈕 (修改處：僅套用於進貨資訊 purchaseInfo) */}
+                                {module === 'purchaseInfo' && (
                                     <button 
                                         onClick={syncFromApi} 
                                         disabled={isSyncing}
