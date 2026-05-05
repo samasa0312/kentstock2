@@ -197,7 +197,8 @@
                 database: <React.Fragment><ellipse cx="12" cy="5" rx="9" ry="3" /><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" /><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" /></React.Fragment>,
                 shopping: <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4H6z M3 6h18 M16 10a4 4 0 0 1-8 0" />,
                 'file-warning': <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z M12 9v4 M12 17h.01" />,
-                cloud: <path d="M17.5 19c2.5 0 4.5-2 4.5-4.5 0-2-1.5-3.5-3.5-4-.5-4-4-7-8.5-7-3.5 0-6.5 2-7.5 5-2 .5-4 2-4 4.5C1 17 3 19 5.5 19h12z" />
+                cloud: <path d="M17.5 19c2.5 0 4.5-2 4.5-4.5 0-2-1.5-3.5-3.5-4-.5-4-4-7-8.5-7-3.5 0-6.5 2-7.5 5-2 .5-4 2-4 4.5C1 17 3 19 5.5 19h12z" />,
+                key: <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
             };
             return (
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" className={className}>
@@ -225,17 +226,14 @@
         // 3. 解析器邏輯
         // ==========================================
 
-        // 將 API 回傳的 JSON 陣列映射到內部的 invState
         const processJsonToInvState = (jsonArray) => {
             const result = { purchaseInfo: [], workOrders: [], issued: [], pendingShipment: [], materialInventory: [], consumableInventory: [] };
             
             if (!Array.isArray(jsonArray)) return result;
 
             jsonArray.forEach(row => {
-                // 判斷該行屬於哪一類 (依據關鍵欄位特徵)
                 const keys = Object.keys(row).map(k => cleanKey(k));
                 
-                // 1. 進貨表特徵 (包含進貨日期、客戶、工單號碼)
                 if (keys.includes('進貨日期') && keys.includes('客戶') && keys.includes('工單號碼')) {
                     result.purchaseInfo.push({
                         date: processDateValue(getVal(row, ['進貨日期'])),
@@ -244,12 +242,11 @@
                         purchaseOrder: getVal(row, ['採購單號']),
                         partNo: getVal(row, ['料號', '品號']),
                         model: getVal(row, ['機種']),
-                        qty: getVal(row, ['進貨數量', '數量']), // 優先抓取進貨數量
+                        qty: getVal(row, ['進貨數量', '數量']), 
                         status: getVal(row, ['狀態']),
                         note: getVal(row, ['備註'])
                     });
                 }
-                // 2. 庫存特徵 (包含安全庫存)
                 else if (keys.includes('安全庫存') || keys.includes('安全庫存量')) {
                     const yearlyData = {};
                     [2025, 2026, 2027, 2028, 2029, 2030].forEach(yr => {
@@ -270,7 +267,6 @@
                         yearlyData
                     });
                 }
-                // 3. 耗材特徵 (包含耗材關鍵字，或者只有品名規格與庫存且無安全庫存)
                 else if (keys.includes('庫存數量') || (keys.includes('品名') && keys.includes('庫存') && !keys.includes('安全庫存'))) {
                     result.consumableInventory.push({
                         id: getVal(row, ['料號', '品號', 'partno'], ['料號', '品號']),
@@ -279,7 +275,6 @@
                         yearlyData: {}
                     });
                 }
-                // 4. 用料明細 (工單/領料)
                 else if (keys.includes('單號') || keys.includes('工單') || keys.includes('單據編號')) {
                     const item = {
                         id: getVal(row, ['單據編號', '單號', '工單號碼', '工單']),
@@ -295,7 +290,6 @@
                         shipDate: processDateValue(getVal(row, ['預計出貨', '出貨日', '出貨資訊']))
                     };
 
-                    // 簡易分類邏輯
                     if (item.status.includes('已發放')) result.issued.push(item);
                     else if (item.status.includes('待出貨')) result.pendingShipment.push(item);
                     else result.workOrders.push(item);
@@ -452,7 +446,7 @@
                         purchaseOrder: getVal(row, ['採購單號']),
                         partNo: getVal(row, ['料號', '品號']),
                         model: getVal(row, ['機種']),
-                        qty: getVal(row, ['進貨數量', '數量']), // 優先抓取進貨數量
+                        qty: getVal(row, ['進貨數量', '數量']), 
                         status: getVal(row, ['狀態']), 
                         note: getVal(row, ['備註'])
                     })).filter(i => i.date || i.customer || i.workOrder);
@@ -557,7 +551,7 @@
                 { id: 'purchaseOrder', label: '採購單號' },
                 { id: 'partNo', label: '料號' },
                 { id: 'model', label: '機種' },
-                { id: 'qty', label: '進貨數量' },
+                { id: 'qty', label: '在庫庫存' }, 
                 { id: 'note', label: '備註' },
                 { id: 'status', label: '狀態' } 
             ];
@@ -641,11 +635,11 @@
                             <div className="flex items-center justify-end gap-3 sm:gap-4 shrink-0 w-full sm:w-auto">
                                 <div className="flex flex-row items-center gap-2 mt-1 sm:mt-0">
                                     <div className="text-xs sm:text-sm text-slate-600 font-mono bg-white px-2.5 py-1 rounded border border-slate-200 shadow-sm flex items-center shrink-0">
-                                        現有庫存: <span className="font-bold text-slate-800 text-sm sm:text-base ml-1.5">{displayStock}</span>
+                                        在庫庫存: <span className="font-bold text-slate-800 text-sm sm:text-base ml-1.5">{displayStock}</span>
                                     </div>
                                     {title === '物料庫存' && item.safetyStock !== undefined && (
                                         <div className={`text-xs sm:text-sm font-mono px-2.5 py-1 rounded border shadow-sm flex items-center shrink-0 ${safetyBgClass}`}>
-                                            安全庫存: <span className={`font-bold text-sm sm:text-base ml-1.5 ${safetyColorClass}`}>{displaySafety}</span>
+                                            在外庫存: <span className={`font-bold text-sm sm:text-base ml-1.5 ${safetyColorClass}`}>{displaySafety}</span>
                                         </div>
                                     )}
                                 </div>
@@ -1043,8 +1037,8 @@
                                             <th className="p-3 sm:p-4 w-10 sm:w-12 text-center whitespace-nowrap">#</th>
                                             <th className="p-3 sm:p-4 text-left min-w-[120px] break-all">料號</th>
                                             <th className="p-3 sm:p-4 text-left min-w-[200px] break-words">品名</th>
-                                            <th className="p-3 sm:p-4 text-center bg-teal-50/70 text-teal-800 whitespace-nowrap border-x border-white/40">現有庫存</th>
-                                            {title === '物料庫存' && <th className="p-3 sm:p-4 text-center bg-orange-50/70 text-orange-800 whitespace-nowrap border-r border-white/40">安全庫存</th>}
+                                            <th className="p-3 sm:p-4 text-center bg-teal-50/70 text-teal-800 whitespace-nowrap border-x border-white/40">在庫庫存</th>
+                                            {title === '物料庫存' && <th className="p-3 sm:p-4 text-center bg-orange-50/70 text-orange-800 whitespace-nowrap border-r border-white/40">在外庫存</th>}
                                             {showDataPanel && <th className="p-3 sm:p-4 text-center whitespace-nowrap">數據面板</th>}
                                         </tr>
                                     </thead>
@@ -1127,21 +1121,45 @@
                 files: [] 
             });
 
-            // API 網址
-            const API_URL = "https://defaultc88f0a0ed1474693bc04daf56552e7.cf.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/2cfbcaac8541498597a2a40da6b3f0d5/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=bLeQEKahjZYgyBDZ8d9IKQr1YSWTvUWwqfnAJXFqRQM";
+            const [showApiModal, setShowApiModal] = useState(false);
+            const [apiKey, setApiKey] = useState(''); 
 
-            // 從 API 同步資料
-            const syncFromApi = async () => {
+            const syncFromApi = async (customApiKey) => {
+                if (!customApiKey.trim()) return;
+                
                 setIsSyncing(true);
-                setMsg({ type: 'info', text: '正在連線雲端資料源...' });
+                setMsg({ type: 'info', text: '正在發送金鑰進行驗證...' });
+                
                 try {
-                    const response = await fetch(API_URL);
-                    if (!response.ok) throw new Error('連線失敗');
+                    const API_URL = "https://defaultc88f0a0ed1474693bc04daf56552e7.cf.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/cfa0cd8f237d4fafb6a8b9d85b69207a/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=kS5RzwKaQyXw1OVD3h0-26hvoJoDDADObnmlux5U2m8";
+
+                    // 動態建立 headers，避免預設帶入 Authorization 造成微軟閘道器直接阻擋
+                    const reqHeaders = {
+                        'x-api-key': customApiKey.trim()
+                    };
+                    
+                    // 若您未來使用的是標準的 OAuth Token，才加上 Authorization 標頭
+                    if (customApiKey.trim().startsWith('Bearer ')) {
+                        reqHeaders['Authorization'] = customApiKey.trim();
+                    }
+
+                    // 發送 GET 請求
+                    const response = await fetch(API_URL, {
+                        method: 'GET', 
+                        headers: reqHeaders
+                    });
+
+                    if (response.status === 401) {
+                        throw new Error('401 Unauthorized: 權限驗證失敗。請確認金鑰是否正確，或 Power Automate 觸發條件是否設為「任何人(Anyone)」。');
+                    }
+                    
+                    if (!response.ok) {
+                        throw new Error(`連線失敗 (狀態碼: ${response.status})。請檢查後端服務狀態。`);
+                    }
                     
                     const json = await response.json();
                     const processedData = processJsonToInvState(json);
                     
-                    // 修改處：只更新進貨資訊(purchaseInfo)，保留其他可能手動上傳的資料不被覆蓋
                     setInvState(prev => ({
                         ...prev,
                         data: {
@@ -1151,13 +1169,13 @@
                         files: prev.files.includes('Cloud API Source') ? prev.files : [...prev.files, 'Cloud API Source']
                     }));
                     
-                    setMsg({ type: 'success', text: `同步完成！載入 ${processedData.purchaseInfo.length} 筆進貨資料` });
+                    setMsg({ type: 'success', text: `同步成功！已獲取 ${processedData.purchaseInfo.length} 筆進貨資料` });
                 } catch (err) {
-                    console.error(err);
-                    setMsg({ type: 'error', text: '雲端同步失敗，請確認網路連線' });
+                    console.error('Sync Error:', err);
+                    setMsg({ type: 'error', text: err.message || '發生不明連線錯誤，請稍後再試' });
                 } finally {
                     setIsSyncing(false);
-                    setTimeout(() => setMsg(null), 5000);
+                    setTimeout(() => setMsg(null), 8000); 
                 }
             };
 
@@ -1267,7 +1285,7 @@
             const currentFiles = module === 'order' ? orderState.files : invState.files;
 
             return (
-                <div className="h-screen w-full flex flex-col overflow-hidden bg-transparent font-sans text-slate-800">
+                <div className="h-screen w-full flex flex-col overflow-hidden bg-transparent font-sans text-slate-800 relative">
                     <header className="content-panel rounded-none border-x-0 border-t-0 border-b border-slate-200 shrink-0 z-20 relative flex flex-col">
                         <div className="px-4 py-3 flex flex-wrap items-center gap-3">
                             <div className="flex items-center gap-2 shrink-0 md:mr-2">
@@ -1287,11 +1305,11 @@
                                 {module === 'materialInventory' && (
                                     <>
                                         <div className="relative w-40 sm:w-44 shrink-0">
-                                            <input type="text" placeholder="安全庫存(如 >10)" className="w-full bg-orange-50/80 backdrop-blur-md border border-orange-200 rounded-lg py-2 pl-3 pr-8 text-base outline-none font-tech-mono" value={safetySearch} onChange={e => setSafetySearch(e.target.value)} />
+                                            <input type="text" placeholder="在外庫存(如 >10)" className="w-full bg-orange-50/80 backdrop-blur-md border border-orange-200 rounded-lg py-2 pl-3 pr-8 text-base outline-none font-tech-mono" value={safetySearch} onChange={e => setSafetySearch(e.target.value)} />
                                             {safetySearch && <button className="absolute right-2 top-1/2 -translate-y-1/2 text-orange-400" onClick={() => setSafetySearch('')}><Icon name="x" className="w-4 h-4" /></button>}
                                         </div>
                                         <div className="relative w-40 sm:w-44 shrink-0">
-                                            <input type="text" placeholder="現有庫存(如 <5)" className="w-full bg-blue-50/80 backdrop-blur-md border border-blue-200 rounded-lg py-2 pl-3 pr-8 text-base outline-none font-tech-mono" value={stockSearch} onChange={e => setStockSearch(e.target.value)} />
+                                            <input type="text" placeholder="在庫庫存(如 <5)" className="w-full bg-blue-50/80 backdrop-blur-md border border-blue-200 rounded-lg py-2 pl-3 pr-8 text-base outline-none font-tech-mono" value={stockSearch} onChange={e => setStockSearch(e.target.value)} />
                                             {stockSearch && <button className="absolute right-2 top-1/2 -translate-y-1/2 text-blue-400" onClick={() => setStockSearch('')}><Icon name="x" className="w-4 h-4" /></button>}
                                         </div>
                                     </>
@@ -1318,10 +1336,12 @@
                                     </button>
                                 )}
                                 
-                                {/* 雲端同步按鈕 (修改處：僅套用於進貨資訊 purchaseInfo) */}
                                 {module === 'purchaseInfo' && (
                                     <button 
-                                        onClick={syncFromApi} 
+                                        onClick={() => {
+                                            setApiKey(''); 
+                                            setShowApiModal(true);
+                                        }} 
                                         disabled={isSyncing}
                                         className={`px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-bold flex items-center gap-1.5 shadow-md transition-all whitespace-nowrap ${isSyncing ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-700'}`}
                                     >
@@ -1365,6 +1385,57 @@
                             <StockSystem title="耗材庫存" data={invState.data.consumableInventory || []} showDataPanel={false} globalSearch={globalSearch} safetySearch={safetySearch} />
                         </div>
                     </main>
+
+                    {/* API Key Modal - 保持明文輸入，不自動紀錄 */}
+                    {showApiModal && (
+                        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowApiModal(false)}>
+                            <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl modal-animate overflow-hidden border border-slate-200" onClick={e => e.stopPropagation()}>
+                                <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-teal-50">
+                                    <h3 className="font-bold text-teal-800 text-lg flex items-center gap-2">
+                                        <Icon name="key" className="w-5 h-5"/> 同步連線設定
+                                    </h3>
+                                    <button onClick={() => setShowApiModal(false)} className="text-slate-400 hover:text-red-500 transition-colors">
+                                        <Icon name="x" className="w-5 h-5"/>
+                                    </button>
+                                </div>
+                                <div className="p-6 text-left">
+                                    <p className="text-sm text-slate-600 mb-4 leading-relaxed">
+                                        請輸入您的自訂 API 金鑰進行驗證。
+                                        <br/>
+                                        <span className="text-red-500 text-xs font-bold font-sans">注意：金鑰輸入錯誤將導致 401 錯誤。</span>
+                                    </p>
+                                    <input
+                                        type="text"
+                                        autoComplete="off"
+                                        className="w-full border border-slate-300 rounded-lg p-3 text-slate-700 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none font-mono text-sm shadow-inner transition-all"
+                                        placeholder="在此輸入金鑰..."
+                                        value={apiKey}
+                                        onChange={e => setApiKey(e.target.value)}
+                                        autoFocus
+                                    />
+                                </div>
+                                <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
+                                    <button 
+                                        onClick={() => setShowApiModal(false)} 
+                                        className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-200 rounded-lg transition-colors"
+                                    >
+                                        取消
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            setShowApiModal(false);
+                                            syncFromApi(apiKey);
+                                        }}
+                                        disabled={!apiKey.trim()}
+                                        className="px-5 py-2 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-lg shadow-sm transition-colors flex items-center gap-2"
+                                    >
+                                        <Icon name="cloud" className="w-4 h-4"/>
+                                        驗證並同步
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             );
         }
