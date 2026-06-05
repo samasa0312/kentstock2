@@ -87,23 +87,41 @@
 
         const processDateValue = (rawVal) => {
             if (rawVal === undefined || rawVal === null || rawVal === '') return '';
-            const strVal = String(rawVal).trim();
+            let strVal = String(rawVal).trim();
             if (/^\d+(\.\d+)?$/.test(strVal)) {
                 const num = parseFloat(strVal);
                 if (num > 30000 && num < 60000) {
-                    const date = new Date((num - 25569) * 86400 * 1000);
-                    return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}`;
+                    const date = new Date(Math.round((num - 25569) * 86400 * 1000));
+                    return `${date.getUTCFullYear()}/${String(date.getUTCMonth() + 1).padStart(2, '0')}/${String(date.getUTCDate()).padStart(2, '0')}`;
                 }
             }
+            
+            // 統一將字串中所有 YYYY/M/D 或 YYYY-M-D 的格式補零為 YYYY/MM/DD
+            strVal = strVal.replace(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/g, (match, y, m, d) => {
+                return `${y}/${String(m).padStart(2, '0')}/${String(d).padStart(2, '0')}`;
+            });
+            
             return strVal;
         };
 
         const parseDateTimestamp = (str) => {
             if (!str) return null;
             const match = String(str).match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
-            if (match) return new Date(parseInt(match[1]), parseInt(match[2]) - 1, parseInt(match[3])).getTime();
+            if (match) return new Date(parseInt(match[1], 10), parseInt(match[2], 10) - 1, parseInt(match[3], 10)).getTime();
             const d = new Date(str);
             return !isNaN(d.getTime()) ? d.getTime() : null;
+        };
+
+        // 新增：提取字串中「所有」日期的時間戳，確保多行或帶有備註(*34)的內容不漏接
+        const parseAllDateTimestamps = (str) => {
+            if (!str) return [];
+            const regex = /(\d{4})[-/](\d{1,2})[-/](\d{1,2})/g;
+            const matches = [...String(str).matchAll(regex)];
+            if (matches.length > 0) {
+                return matches.map(m => new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10)).getTime());
+            }
+            const d = new Date(str);
+            return !isNaN(d.getTime()) ? [d.getTime()] : [];
         };
 
         const getQtyValue = (row, primaryKey) => {
@@ -129,6 +147,36 @@
             return ''; 
         };
 
+        // 智慧搜尋比對器：能夠自動相容使用者輸入的「帶零」與「不帶零」日期格式進行模糊比對
+        const isMatch = (itemValues, searchString) => {
+            const s = (searchString || '').trim().toLowerCase();
+            if (!s) return true;
+            
+            const terms = [s];
+            const dateMatch = s.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+            
+            if (dateMatch) {
+                const y = dateMatch[1];
+                const m = parseInt(dateMatch[2], 10);
+                const d = parseInt(dateMatch[3], 10);
+                
+                // 產生兩種標準格式替換字串，讓 2026/6/5 能正確匹配 2026/06/05 資料
+                const paddedSlash = `${y}/${String(m).padStart(2, '0')}/${String(d).padStart(2, '0')}`;
+                const unpaddedSlash = `${y}/${m}/${d}`;
+                
+                const sPadded = s.replace(dateMatch[0], paddedSlash);
+                const sUnpadded = s.replace(dateMatch[0], unpaddedSlash);
+                
+                if (!terms.includes(sPadded)) terms.push(sPadded);
+                if (!terms.includes(sUnpadded)) terms.push(sUnpadded);
+            }
+
+            return itemValues.some(v => {
+                const strV = String(v).toLowerCase();
+                return terms.some(t => strV.includes(t));
+            });
+        };
+
         const getGroupedAndFilteredData = (data, search, shortageOnly) => {
             if (!data || data.length === 0) return [];
             const groups = {};
@@ -150,9 +198,7 @@
                 }
             });
             return Object.values(groups).filter(group => {
-                const matchesSearch = group.id.toString().toLowerCase().includes(search.toLowerCase()) ||
-                                      group.customer.toString().toLowerCase().includes(search.toLowerCase()) ||
-                                      group.mainSpec.toString().toLowerCase().includes(search.toLowerCase());
+                const matchesSearch = isMatch([group.id, group.customer, group.mainSpec, group.recvDate, group.shipDate], search);
                 return matchesSearch && (shortageOnly ? group.hasShortage : true);
             });
         };
@@ -535,8 +581,7 @@
             const filtered = useMemo(() => {
                 let list = data;
                 if (globalSearch) {
-                    const s = globalSearch.toLowerCase();
-                    list = list.filter(i => Object.values(i).some(v => String(v).toLowerCase().includes(s)));
+                    list = list.filter(i => isMatch(Object.values(i), globalSearch));
                 }
                 if (onlyAbnormal) {
                     list = list.filter(i => i.status && String(i.status).trim() !== '');
@@ -725,19 +770,49 @@
             const [selected, setSelected] = useState(null);
 
             const filteredRecv = useMemo(() => {
+                const startTs = parseDateTimestamp(dates.start);
+                const endTs = parseDateTimestamp(dates.end);
+
                 return data.filter(i => {
-                    const matchesSearch = !globalSearch || Object.values(i).some(v => String(v).toLowerCase().includes(globalSearch.toLowerCase()));
-                    const ts = parseDateTimestamp(i.recvDate);
-                    const matchesDate = (!dates.start || (ts && ts >= parseDateTimestamp(dates.start))) && (!dates.end || (ts && ts <= parseDateTimestamp(dates.end)));
+                    const matchesSearch = isMatch(Object.values(i), globalSearch);
+                    let matchesDate = true;
+                    
+                    if (dates.start || dates.end) {
+                        // 取得欄位內所有的日期時間戳
+                        const timestamps = parseAllDateTimestamps(i.recvDate);
+                        if (timestamps.length === 0) {
+                            matchesDate = false;
+                        } else {
+                            // 只要欄位內有「任何一個」日期落在篩選區間內，就視為符合
+                            matchesDate = timestamps.some(ts => 
+                                (!startTs || ts >= startTs) && (!endTs || ts <= endTs)
+                            );
+                        }
+                    }
                     return matchesSearch && matchesDate;
                 }).sort((a, b) => (parseDateTimestamp(a.recvDate) || 9999999999999) - (parseDateTimestamp(b.recvDate) || 9999999999999));
             }, [data, globalSearch, dates]);
 
             const filteredShip = useMemo(() => {
+                const startTs = parseDateTimestamp(dates.start);
+                const endTs = parseDateTimestamp(dates.end);
+
                 return data.filter(i => {
-                    const matchesSearch = !globalSearch || Object.values(i).some(v => String(v).toLowerCase().includes(globalSearch.toLowerCase()));
-                    const ts = parseDateTimestamp(i.shipDate);
-                    const matchesDate = (!dates.start || (ts && ts >= parseDateTimestamp(dates.start))) && (!dates.end || (ts && ts <= parseDateTimestamp(dates.end)));
+                    const matchesSearch = isMatch(Object.values(i), globalSearch);
+                    let matchesDate = true;
+
+                    if (dates.start || dates.end) {
+                        // 取得欄位內所有的日期時間戳
+                        const timestamps = parseAllDateTimestamps(i.shipDate);
+                        if (timestamps.length === 0) {
+                            matchesDate = false;
+                        } else {
+                            // 只要欄位內有「任何一個」日期落在篩選區間內，就視為符合
+                            matchesDate = timestamps.some(ts => 
+                                (!startTs || ts >= startTs) && (!endTs || ts <= endTs)
+                            );
+                        }
+                    }
                     return matchesSearch && matchesDate;
                 }).sort((a, b) => (parseDateTimestamp(a.shipDate) || 9999999999999) - (parseDateTimestamp(b.shipDate) || 9999999999999));
             }, [data, globalSearch, dates]);
@@ -981,8 +1056,7 @@
         const StockSystem = ({ title, data, showDataPanel = true, globalSearch, safetySearch, stockSearch }) => {
             const [selected, setSelected] = useState(null);
             const filtered = useMemo(() => data.filter(i => {
-                const s = (globalSearch || '').trim().toLowerCase();
-                const matchesGlobal = !s || Object.values(i).some(v => String(v).toLowerCase().includes(s));
+                const matchesGlobal = isMatch(Object.values(i), globalSearch);
                 let matchesSafety = true;
                 let matchesStock = true;
 
@@ -1133,17 +1207,14 @@
                 try {
                     const API_URL = "https://defaultc88f0a0ed1474693bc04daf56552e7.cf.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/cfa0cd8f237d4fafb6a8b9d85b69207a/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=kS5RzwKaQyXw1OVD3h0-26hvoJoDDADObnmlux5U2m8";
 
-                    // 動態建立 headers，避免預設帶入 Authorization 造成微軟閘道器直接阻擋
                     const reqHeaders = {
                         'x-api-key': customApiKey.trim()
                     };
                     
-                    // 若您未來使用的是標準的 OAuth Token，才加上 Authorization 標頭
                     if (customApiKey.trim().startsWith('Bearer ')) {
                         reqHeaders['Authorization'] = customApiKey.trim();
                     }
 
-                    // 發送 GET 請求
                     const response = await fetch(API_URL, {
                         method: 'GET', 
                         headers: reqHeaders
@@ -1187,7 +1258,7 @@
                 const countMatches = (dataArray, applyAdvancedFilters = false, key = '') => {
                     if (!dataArray) return 0;
                     return dataArray.filter(i => {
-                        const matchesGlobal = !s || Object.values(i).some(v => String(v).toLowerCase().includes(s));
+                        const matchesGlobal = isMatch(Object.values(i), globalSearch);
                         let matchesSafety = true; let matchesStock = true;
                         let matchesPurchaseAbnormal = true;
 
@@ -1234,9 +1305,11 @@
                     const groups = {};
                     ['workOrders', 'issued', 'pendingShipment'].forEach(key => (invState.data[key] || []).forEach(item => {
                         const id = item.id || '未知單號';
-                        if (!groups[id]) groups[id] = { id, customer: item.customer || '', mainSpec: item.spec || '' };
+                        if (!groups[id]) groups[id] = { id, customer: item.customer || '', mainSpec: item.spec || '', recvDate: item.recvDate || '', shipDate: item.shipDate || '' };
+                        if (!groups[id].recvDate && item.recvDate) groups[id].recvDate = item.recvDate;
+                        if (!groups[id].shipDate && item.shipDate) groups[id].shipDate = item.shipDate;
                     }));
-                    invMatchCount = Object.values(groups).filter(g => g.id.toLowerCase().includes(s) || g.customer.toLowerCase().includes(s) || g.mainSpec.toLowerCase().includes(s)).length;
+                    invMatchCount = Object.values(groups).filter(g => isMatch(Object.values(g), globalSearch)).length;
                 }
 
                 return { 
