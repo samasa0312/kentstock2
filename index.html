@@ -1201,6 +1201,8 @@
 
         // ==========================================
         // 修改：詳細資訊整合系統元件 (DetailedInfoSystem)
+        // 💡 僅讀取工單的預計進出貨日期，不讀取「進貨表」
+        // 💡 進出貨時程內文設定為 whitespace-pre-wrap 完全依照實際文字內容換行
         // ==========================================
         const DetailedInfoSystem = ({ orderData, invData, globalSearch, orderColumns }) => {
             const query = (globalSearch || '').trim().toLowerCase();
@@ -1252,21 +1254,17 @@
             }, [invData.workOrders, invData.issued, invData.pendingShipment]);
 
             const results = useMemo(() => {
-                if (!query) return { orders: [], purchases: [], workOrders: [], inventory: [] };
+                if (!query) return { orders: [], workOrders: [], inventory: [] };
 
                 // 1. 篩選相關訂單 (來源：訂單管理)
                 const matchedOrders = orderData.filter(o => isMatch(Object.values(o), query));
 
-                // 2. 篩選相關進貨
-                const matchedPurchases = (invData.purchaseInfo || []).filter(p => isMatch(Object.values(p), query));
-
                 // 收集已匹配項目中所有的關聯工單號
                 const associatedWOIds = new Set([
-                    ...matchedOrders.map(o => String(o.workOrder || '').trim().toLowerCase()),
-                    ...matchedPurchases.map(p => String(p.workOrder || '').trim().toLowerCase())
+                    ...matchedOrders.map(o => String(o.workOrder || '').trim().toLowerCase())
                 ].filter(Boolean));
 
-                // 3. 篩選用料明細 (包含直系搜尋或對應至關聯工單者)
+                // 2. 篩選用料明細 (包含直系搜尋或對應至關聯工單者，💡 排除「進貨表」關聯)
                 const groupedWOs = getGroupedAndFilteredData(allWOs, "", false);
                 const matchedWOs = groupedWOs.filter(g => {
                     const isDirect = isMatch([g.id, g.customer, g.mainSpec, g.recvDate, g.shipDate], query);
@@ -1278,11 +1276,10 @@
                 const relevantPartNos = new Set([
                     ...matchedOrders.map(o => String(o.bfPart || '').trim().toLowerCase()),
                     ...matchedOrders.map(o => String(o.custPart || '').trim().toLowerCase()),
-                    ...matchedPurchases.map(p => String(p.partNo || '').trim().toLowerCase()),
                     ...matchedWOs.flatMap(g => g.items.map(i => String(i.partNo || '').trim().toLowerCase()))
                 ].filter(Boolean));
 
-                // 4. 篩選物料庫存
+                // 3. 篩選物料庫存
                 const matchedInventory = (invData.materialInventory || []).filter(item => {
                     const isDirect = isMatch([item.id, item.spec], query);
                     const isRelational = item.id && relevantPartNos.has(String(item.id).trim().toLowerCase());
@@ -1291,11 +1288,10 @@
 
                 return {
                     orders: matchedOrders,
-                    purchases: matchedPurchases,
                     workOrders: matchedWOs,
                     inventory: matchedInventory
                 };
-            }, [orderData, invData.purchaseInfo, invData.materialInventory, allWOs, query]);
+            }, [orderData, invData.materialInventory, allWOs, query]);
 
             const visibleOrderColumns = useMemo(() => {
                 if (!orderColumns) return [];
@@ -1322,7 +1318,7 @@
                 );
             }
 
-            const isEmpty = !results.orders.length && !results.purchases.length && !results.workOrders.length;
+            const isEmpty = !results.orders.length && !results.workOrders.length;
 
             if (isEmpty) {
                 return (
@@ -1382,62 +1378,41 @@
                             </div>
                         </div>
 
-                        {/* 💡 2. 進貨與出貨資訊並排顯示 (並排，左側"進貨資訊"右側"出貨資訊" - 移除日期拆分，直觀卡片顯示) */}
+                        {/* 💡 2. 進貨與出貨資訊並排顯示 (左側"進貨資訊"右側"出貨資訊" - 僅顯示預計進出貨日期，其餘資訊皆隱藏，並支援完全換行) */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 xl:col-span-2">
-                            {/* 左側：進貨資訊 */}
+                            {/* 左側：進貨資訊 (💡 來源已完全移除「進貨表」，僅透過用料工單顯示) */}
                             <div className="content-panel p-5 flex flex-col h-[480px]">
                                 <div className="flex items-center gap-2 mb-3 border-b border-slate-200/50 pb-2">
                                     <Icon name="calendar" className="w-5 h-5 text-blue-600" />
                                     <h3 className="font-bold text-slate-800 text-base sm:text-lg">
-                                        進貨資訊 ({results.workOrders.filter(g => g.recvDate).length + results.purchases.length})
+                                        進貨資訊 ({results.workOrders.filter(g => g.recvDate).length})
                                     </h3>
                                 </div>
                                 <div className="overflow-auto flex-1 px-1 space-y-3">
-                                    {/* (A) 用料工單的進貨日期 */}
+                                    {/* (A) 用料工單的預計進貨日 (💡 極簡化與垂直堆疊樣式：完全依照資訊內容換行) */}
                                     {results.workOrders.filter(g => g.recvDate).map((g, idx) => (
-                                        <div key={`wo-recv-${idx}`} className="bg-blue-50/30 hover:bg-white/95 p-3.5 rounded-lg border border-blue-100 shadow-sm transition-all text-left flex flex-col gap-2">
-                                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-blue-50 pb-1.5">
-                                                <div className="flex items-center gap-1.5">
-                                                    <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
-                                                        工單進貨
-                                                    </span>
-                                                    <span className="font-bold text-slate-800 text-sm font-tech-mono">{g.id}</span>
+                                        <div key={`wo-recv-${idx}`} className="bg-blue-50/30 hover:bg-white/95 p-3.5 rounded-lg border border-blue-100 shadow-sm transition-all text-left">
+                                            <div className="text-xs sm:text-sm flex flex-col gap-1.5">
+                                                <div className="flex items-center gap-2 border-b border-blue-50 pb-1">
+                                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">工單</span>
+                                                    <span className="font-bold text-slate-800 font-tech-mono">{g.id}</span>
                                                 </div>
-                                                <StatusBadge status={g.mainStatus} className="scale-90" />
-                                            </div>
-                                            <div className="text-xs sm:text-sm">
-                                                <div className="font-bold text-slate-700">預計進貨日：<span className="text-blue-700 font-extrabold">{g.recvDate}</span></div>
-                                                <div className="text-slate-500 mt-1">{g.customer} | {g.mainSpec}</div>
+                                                <div className="font-medium text-slate-600">
+                                                    預計進貨日：
+                                                    <div className="text-blue-700 font-extrabold whitespace-pre-wrap break-all mt-1 leading-relaxed">
+                                                        {g.recvDate}
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     ))}
-                                    {/* (B) 採購表的進貨歷史 */}
-                                    {results.purchases.map((p, idx) => (
-                                        <div key={`pur-${idx}`} className="bg-emerald-50/30 hover:bg-white/95 p-3.5 rounded-lg border border-emerald-100 shadow-sm transition-all text-left flex flex-col gap-2">
-                                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-50 pb-1.5">
-                                                <div className="flex items-center gap-1.5">
-                                                    <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                                                        採購進貨
-                                                    </span>
-                                                    <span className="font-bold text-slate-800 text-sm font-tech-mono">{p.workOrder || '無工單'}</span>
-                                                </div>
-                                                {p.status && <StatusBadge status={p.status} className="scale-90" />}
-                                            </div>
-                                            <div className="text-xs sm:text-sm">
-                                                <div className="font-bold text-slate-700">進貨日期：<span className="text-emerald-700 font-extrabold">{p.date || '無日期'}</span></div>
-                                                <div className="text-slate-600 mt-1 font-mono font-semibold">料號: {p.partNo} (數量: {p.qty})</div>
-                                                <div className="text-slate-500 mt-0.5">{p.customer} | {p.model}</div>
-                                                {p.note && <div className="text-xs text-amber-700 mt-1 bg-amber-50/50 p-1 rounded font-sans">備註: {p.note}</div>}
-                                            </div>
-                                        </div>
-                                    ))}
-                                    {results.workOrders.filter(g => g.recvDate).length === 0 && results.purchases.length === 0 && (
+                                    {results.workOrders.filter(g => g.recvDate).length === 0 && (
                                         <p className="text-sm text-slate-400 text-center py-20">無進貨資訊</p>
                                     )}
                                 </div>
                             </div>
 
-                            {/* 右側：出貨資訊 */}
+                            {/* 右側：出貨資訊 (💡 極簡化與垂直堆疊樣式：完全依照資訊內容換行) */}
                             <div className="content-panel p-5 flex flex-col h-[480px]">
                                 <div className="flex items-center gap-2 mb-3 border-b border-slate-200/50 pb-2">
                                     <Icon name="truck" className="w-5 h-5 text-purple-600" />
@@ -1446,21 +1421,20 @@
                                     </h3>
                                 </div>
                                 <div className="overflow-auto flex-1 px-1 space-y-3">
-                                    {/* (A) 用料工單的出貨日期 */}
+                                    {/* (A) 用料工單的預計出貨日 (💡 極簡化與垂直堆疊樣式：完全依照資訊內容換行) */}
                                     {results.workOrders.filter(g => g.shipDate).map((g, idx) => (
-                                        <div key={`wo-ship-${idx}`} className="bg-purple-50/30 hover:bg-white/95 p-3.5 rounded-lg border border-purple-100 shadow-sm transition-all text-left flex flex-col gap-2">
-                                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-purple-50 pb-1.5">
-                                                <div className="flex items-center gap-1.5">
-                                                    <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
-                                                        工單出貨
-                                                    </span>
-                                                    <span className="font-bold text-slate-800 text-sm font-tech-mono">{g.id}</span>
+                                        <div key={`wo-ship-${idx}`} className="bg-purple-50/30 hover:bg-white/95 p-3.5 rounded-lg border border-purple-100 shadow-sm transition-all text-left">
+                                            <div className="text-xs sm:text-sm flex flex-col gap-1.5">
+                                                <div className="flex items-center gap-2 border-b border-purple-50 pb-1">
+                                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">工單</span>
+                                                    <span className="font-bold text-slate-800 font-tech-mono">{g.id}</span>
                                                 </div>
-                                                <StatusBadge status={g.mainStatus} className="scale-90" />
-                                            </div>
-                                            <div className="text-xs sm:text-sm">
-                                                <div className="font-bold text-slate-700">預計出貨日：<span className="text-purple-700 font-extrabold">{g.shipDate}</span></div>
-                                                <div className="text-slate-500 mt-1">{g.customer} | {g.mainSpec}</div>
+                                                <div className="font-medium text-slate-600">
+                                                    預計出貨日：
+                                                    <div className="text-purple-700 font-extrabold whitespace-pre-wrap break-all mt-1 leading-relaxed">
+                                                        {g.shipDate}
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     ))}
@@ -1471,7 +1445,7 @@
                             </div>
                         </div>
 
-                        {/* 💡 3. 用料明細&庫存 - 在下方單獨一整排大區塊顯示（明細內字體已全面放大） */}
+                        {/* 3. 用料明細&庫存 - 在下方單獨一整排大區塊顯示（明細內字體已全面放大） */}
                         <div className="content-panel p-5 flex flex-col h-fit xl:col-span-2">
                             <div className="flex items-center gap-2 mb-3 border-b border-slate-200/50 pb-2">
                                 <Icon name="spreadsheet" className="w-5 h-5 text-teal-600" />
@@ -1738,8 +1712,8 @@
                 let detailedCount = 0;
                 if (s) {
                     const orderMatches = orderState.data.filter(o => isMatch(Object.values(o), s)).length;
-                    const purchaseMatches = invState.data.purchaseInfo.filter(p => isMatch(Object.values(p), s)).length;
-                    detailedCount = orderMatches + purchaseMatches;
+                    // 💡 詳細資訊不累計進貨表搜尋計數
+                    detailedCount = orderMatches;
                 }
 
                 return { 
