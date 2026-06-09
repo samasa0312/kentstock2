@@ -112,7 +112,7 @@
             return !isNaN(d.getTime()) ? d.getTime() : null;
         };
 
-        // 新增：提取字串中「所有」日期的時間戳，確保多行或帶有備註(*34)的內容不漏接
+        // 提取字串中「所有」日期的時間戳，確保多行或帶有備註(*34)的內容不漏接
         const parseAllDateTimestamps = (str) => {
             if (!str) return [];
             const regex = /(\d{4})[-/](\d{1,2})[-/](\d{1,2})/g;
@@ -230,7 +230,7 @@
                 loader: <path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83" />,
                 truck: <path d="M1 3h15v13H1z M16 8h4l3 3v5h-7" />,
                 box: <path d="M21 8l-9-4-9 4v8l9 4 9-4V8z M12 4v16" />,
-                info: <React.Fragment><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01" /></React.Fragment>,
+                info: <React.Fragment><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></React.Fragment>,
                 'clipboard-list': <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2m4-2v4h4m-6 10h6m-6-4h6m-6 8h6" />,
                 package: <path d="m7.5 4.27 9 5.15M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z m-9 12.15V13M3.27 6.96 12 12.01l8.73-5.05M12 22.08V12" />,
                 send: <path d="m22 2-7 20-4-9-9-4Z m0 0L11 13" />,
@@ -761,6 +761,7 @@
                     {getBtn('consumableInventory', '耗材庫存')}
                     {getBtn('inventory', '用料明細')}
                     {getBtn('order', '訂單管理')}
+                    {getBtn('detailedInfo', '詳細資訊')}
                 </div>
             );
         };
@@ -1156,6 +1157,292 @@
         };
 
         // ==========================================
+        // 修改：詳細資訊整合系統元件 (DetailedInfoSystem)
+        // ==========================================
+        const DetailedInfoSystem = ({ orderData, invData, globalSearch, orderColumns }) => {
+            const query = (globalSearch || '').trim().toLowerCase();
+            const [selectedOrder, setSelectedOrder] = useState(null);
+
+            const actualInventoryMap = useMemo(() => {
+                const map = {};
+                if (invData.materialInventory) invData.materialInventory.forEach(item => { if (item.id) map[String(item.id).trim().toLowerCase()] = item.allUsageStock; });
+                if (invData.consumableInventory) invData.consumableInventory.forEach(item => { if (item.id) map[String(item.id).trim().toLowerCase()] = item.allUsageStock; });
+                return map;
+            }, [invData.materialInventory, invData.consumableInventory]);
+
+            const getDisplayStock = (partNo, originalStock) => {
+                if (!partNo) return originalStock;
+                const normalizedPartNo = String(partNo).trim().toLowerCase();
+                return actualInventoryMap[normalizedPartNo] !== undefined ? actualInventoryMap[normalizedPartNo] : originalStock;
+            };
+
+            const allWOs = useMemo(() => {
+                return [
+                    ...(invData.workOrders || []),
+                    ...(invData.issued || []),
+                    ...(invData.pendingShipment || [])
+                ];
+            }, [invData.workOrders, invData.issued, invData.pendingShipment]);
+
+            const results = useMemo(() => {
+                if (!query) return { orders: [], purchases: [], workOrders: [], inventory: [] };
+
+                // 1. 篩選相關訂單 (來源：訂單管理)
+                const matchedOrders = orderData.filter(o => isMatch(Object.values(o), query));
+
+                // 2. 篩選相關進貨
+                const matchedPurchases = (invData.purchaseInfo || []).filter(p => isMatch(Object.values(p), query));
+
+                // 收集已匹配項目中所有的關聯工單號
+                const associatedWOIds = new Set([
+                    ...matchedOrders.map(o => String(o.workOrder || '').trim().toLowerCase()),
+                    ...matchedPurchases.map(p => String(p.workOrder || '').trim().toLowerCase())
+                ].filter(Boolean));
+
+                // 3. 篩選用料明細 (包含直系搜尋或對應至關聯工單者)
+                const groupedWOs = getGroupedAndFilteredData(allWOs, "", false);
+                const matchedWOs = groupedWOs.filter(g => {
+                    const isDirect = isMatch([g.id, g.customer, g.mainSpec, g.recvDate, g.shipDate], query);
+                    const isRelational = g.id && associatedWOIds.has(String(g.id).trim().toLowerCase());
+                    return isDirect || isRelational;
+                });
+
+                // 收集相關用料明細與進出貨中的所有關聯料號
+                const relevantPartNos = new Set([
+                    ...matchedOrders.map(o => String(o.bfPart || '').trim().toLowerCase()),
+                    ...matchedOrders.map(o => String(o.custPart || '').trim().toLowerCase()),
+                    ...matchedPurchases.map(p => String(p.partNo || '').trim().toLowerCase()),
+                    ...matchedWOs.flatMap(g => g.items.map(i => String(i.partNo || '').trim().toLowerCase()))
+                ].filter(Boolean));
+
+                // 4. 篩選物料庫存 (直接搜尋吻合或存在於關聯料號清單中者)
+                const matchedInventory = (invData.materialInventory || []).filter(item => {
+                    const isDirect = isMatch([item.id, item.spec], query);
+                    const isRelational = item.id && relevantPartNos.has(String(item.id).trim().toLowerCase());
+                    return isDirect || isRelational;
+                });
+
+                return {
+                    orders: matchedOrders,
+                    purchases: matchedPurchases,
+                    workOrders: matchedWOs,
+                    inventory: matchedInventory
+                };
+            }, [orderData, invData.purchaseInfo, invData.materialInventory, allWOs, query]);
+
+            // 過濾工單（原相關訂單）顯示欄位：排除 "預計進貨日期", "預計出貨日期", "檔案來源", 以及用視窗開啟顯示的 "作業注意事項" 和 "備註"
+            const visibleOrderColumns = useMemo(() => {
+                if (!orderColumns) return [];
+                return orderColumns.filter(col => 
+                    col.id !== 'recvDate' && 
+                    col.id !== 'shipDate' && 
+                    col.id !== 'fileSource' &&
+                    col.id !== 'notes' &&
+                    col.id !== 'remarks'
+                );
+            }, [orderColumns]);
+
+            if (!query) {
+                return (
+                    <div className="flex flex-col items-center justify-center h-full p-8 text-teal-600">
+                        <div className="content-panel rounded-full p-8 mb-6 border-slate-200">
+                            <Icon name="info" className="w-20 h-20 text-teal-500" />
+                        </div>
+                        <p className="text-xl font-bold text-teal-700 tracking-wider text-center">請在上方搜尋欄輸入關鍵字進行詳細查詢</p>
+                        <p className="text-sm text-slate-500 mt-2 text-center max-w-md leading-relaxed">
+                            在全域搜尋輸入<strong>工單號、客戶、料號或規格</strong>，系統將智慧整合並串起對應的「工單、進貨資訊與用料明細&庫存狀況」。
+                        </p>
+                    </div>
+                );
+            }
+
+            const isEmpty = !results.orders.length && !results.purchases.length && !results.workOrders.length;
+
+            if (isEmpty) {
+                return (
+                    <div className="flex flex-col items-center justify-center h-full p-8 text-slate-500">
+                        <div className="content-panel rounded-full p-8 mb-6 border-slate-200">
+                            <Icon name="x" className="w-20 h-20 text-slate-400" />
+                        </div>
+                        <p className="text-xl font-bold text-slate-700 tracking-wider text-center">查無關聯整合資料</p>
+                        <p className="text-sm text-slate-400 mt-2 text-center">您可以嘗試更換搜尋關鍵字，或確認檔案內是否存在此項目。</p>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="h-full overflow-y-auto pb-12 pr-2">
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                        {/* 1. 工單 */}
+                        <div className="content-panel p-5 flex flex-col h-[380px]">
+                            <div className="flex items-center gap-2 mb-3 border-b border-slate-200/50 pb-2">
+                                <Icon name="clipboard-list" className="w-5 h-5 text-teal-600" />
+                                <h3 className="font-bold text-slate-800 text-base sm:text-lg">工單 ({results.orders.length})</h3>
+                            </div>
+                            <div className="overflow-auto flex-1">
+                                {results.orders.length === 0 ? (
+                                    <p className="text-sm text-slate-400 text-center py-20">無工單資料</p>
+                                ) : (
+                                    <table className="w-full table-auto text-left text-xs sm:text-sm border-collapse">
+                                        <thead className="bg-slate-50 sticky top-0 font-bold text-slate-700 border-b border-slate-200">
+                                            <tr>
+                                                {visibleOrderColumns.map(col => (
+                                                    <th key={col.id} className="px-3 py-2 whitespace-nowrap">{col.label}</th>
+                                                ))}
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100 text-slate-600">
+                                            {results.orders.map((o, idx) => (
+                                                <tr key={idx} className="hover:bg-slate-50/50">
+                                                    {visibleOrderColumns.map(col => (
+                                                        <td key={col.id} className="px-3 py-2 whitespace-nowrap">
+                                                            {col.id === 'workOrder' ? (
+                                                                <button 
+                                                                    onClick={() => setSelectedOrder(o)} 
+                                                                    className="font-bold text-teal-700 hover:text-teal-500 hover:underline text-left transition-all"
+                                                                >
+                                                                    {o[col.id] || '-'}
+                                                                </button>
+                                                            ) : (
+                                                                o[col.id] || '-'
+                                                            )}
+                                                        </td>
+                                                    ))}
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* 2. 進貨資訊 - 時間線排版 */}
+                        <div className="content-panel p-5 flex flex-col h-[380px]">
+                            <div className="flex items-center gap-2 mb-3 border-b border-slate-200/50 pb-2">
+                                <Icon name="shopping" className="w-5 h-5 text-teal-600" />
+                                <h3 className="font-bold text-slate-800 text-base sm:text-lg">進貨資訊 ({results.purchases.length})</h3>
+                            </div>
+                            <div className="overflow-auto flex-1 px-2">
+                                {results.purchases.length === 0 ? (
+                                    <p className="text-sm text-slate-400 text-center py-20">無進貨資訊資料</p>
+                                ) : (
+                                    <div className="relative pl-6 border-l border-teal-200 space-y-4 py-2 ml-4">
+                                        {results.purchases.map((p, idx) => (
+                                            <div key={idx} className="relative">
+                                                {/* 時間軸圓點日曆圖示 */}
+                                                <div className="absolute -left-[35px] top-1 w-6 h-6 rounded-full bg-teal-50 border-2 border-teal-500 flex items-center justify-center text-teal-600 shadow-sm">
+                                                    <Icon name="calendar" className="w-3 h-3" />
+                                                </div>
+                                                {/* 內容卡片 */}
+                                                <div className="bg-white/60 hover:bg-white/90 p-3 rounded-lg border border-slate-200/50 shadow-sm transition-all text-left">
+                                                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-1.5 mb-2">
+                                                        <span className="text-xs sm:text-sm font-bold text-teal-800 font-tech-mono">
+                                                            {p.date || '無進貨日期'}
+                                                        </span>
+                                                        {p.status && <StatusBadge status={p.status} className="scale-90" />}
+                                                    </div>
+                                                    <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs sm:text-sm">
+                                                        <div>
+                                                            <span className="text-[10px] text-slate-400 block">客戶</span>
+                                                            <span className="font-semibold text-slate-700 truncate block" title={p.customer}>{p.customer || '-'}</span>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-[10px] text-slate-400 block">料號</span>
+                                                            <span className="font-mono font-bold text-teal-700 block truncate" title={p.partNo}>{p.partNo || '-'}</span>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-[10px] text-slate-400 block">機種</span>
+                                                            <span className="text-slate-600 block truncate" title={p.model}>{p.model || '-'}</span>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-[10px] text-slate-400 block">進貨數量</span>
+                                                            <span className="font-bold text-slate-800 font-tech-mono block">{p.qty || '-'}</span>
+                                                        </div>
+                                                        <div className="col-span-2 md:col-span-1">
+                                                            <span className="text-[10px] text-slate-400 block">備註</span>
+                                                            <span className="text-slate-500 block truncate" title={p.note}>{p.note || '-'}</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* 3. 用料明細&庫存 */}
+                        <div className="content-panel p-5 flex flex-col h-[420px] xl:col-span-2">
+                            <div className="flex items-center gap-2 mb-3 border-b border-slate-200/50 pb-2">
+                                <Icon name="spreadsheet" className="w-5 h-5 text-teal-600" />
+                                <h3 className="font-bold text-slate-800 text-base sm:text-lg">用料明細&庫存 ({results.workOrders.length})</h3>
+                            </div>
+                            <div className="overflow-auto flex-1 space-y-4">
+                                {results.workOrders.length === 0 ? (
+                                    <p className="text-sm text-slate-400 text-center py-24">無用料明細&庫存</p>
+                                ) : (
+                                    results.workOrders.map(g => (
+                                        <div key={g.id} className="border border-slate-200/60 bg-white/40 p-3 rounded-lg shadow-sm">
+                                            <div className="flex justify-between items-center border-b border-slate-200/50 pb-1.5 mb-2">
+                                                <span className="font-bold text-teal-800 text-sm sm:text-base">{g.id}</span>
+                                                <StatusBadge status={g.mainStatus} className="scale-90" />
+                                            </div>
+                                            <div className="text-xs text-slate-500 mb-2 truncate" title={`${g.customer} | ${g.mainSpec}`}>
+                                                {g.customer} <span className="mx-1 text-slate-300">|</span> {g.mainSpec}
+                                            </div>
+                                            <div className="space-y-1.5 text-xs">
+                                                {g.items.map((item, idx) => (
+                                                    <div key={idx} className="flex flex-col sm:flex-row justify-between bg-white/70 p-2 rounded border border-slate-100 gap-1 sm:gap-0">
+                                                        <span className="font-mono font-bold text-slate-700">{item.partNo}</span>
+                                                        <span className="text-slate-500 truncate max-w-[150px]" title={item.spec}>{item.spec}</span>
+                                                        <div className="flex gap-3 text-right">
+                                                            <span className="text-teal-600 font-semibold">需求: {item.plannedQty}</span>
+                                                            <span className="text-slate-500">庫存: {getDisplayStock(item.partNo, item.stockQty)}</span>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* 工單欄位點選後的彈出明細視窗 */}
+                    {selectedOrder && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm" onClick={() => setSelectedOrder(null)}>
+                            <div className="bg-white/85 backdrop-blur-md border border-slate-200/50 w-full max-w-2xl rounded-xl overflow-hidden shadow-xl modal-animate" onClick={e => e.stopPropagation()}>
+                                <div className="bg-white/60 p-5 border-b border-slate-200/50 flex justify-between items-center relative">
+                                    <div className="absolute top-0 left-0 w-1.5 h-full bg-teal-500"></div>
+                                    <div className="font-bold text-slate-800 pl-2 text-xl text-left">工單詳細資訊：{selectedOrder.workOrder}</div>
+                                    <button onClick={() => setSelectedOrder(null)} className="text-slate-400 hover:text-teal-600 transition-colors"><Icon name="x" className="w-6 h-6" /></button>
+                                </div>
+                                <div className="p-6 space-y-5 text-left max-h-[70vh] overflow-y-auto">
+                                    <div>
+                                        <label className="text-sm font-bold text-teal-600 uppercase">作業注意事項</label>
+                                        <div className="bg-white/50 p-4 rounded-lg mt-2 text-base border border-slate-200/50 text-slate-700 leading-relaxed whitespace-pre-wrap">
+                                            {selectedOrder.notes || '無'}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="text-sm font-bold text-teal-600 uppercase">備註</label>
+                                        <div className="bg-white/50 p-4 rounded-lg mt-2 text-base border border-slate-200/50 text-slate-700 leading-relaxed whitespace-pre-wrap">
+                                            {selectedOrder.remarks || '無'}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="bg-white/40 px-6 py-4 flex justify-end border-t border-slate-200/50">
+                                    <button onClick={() => setSelectedOrder(null)} className="px-6 py-2.5 bg-teal-600 text-white rounded-lg font-bold text-base hover:bg-teal-700 transition-colors shadow-sm">關閉視窗</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // ==========================================
         // 5. 主應用程式
         // ==========================================
         function App() {
@@ -1312,12 +1599,21 @@
                     invMatchCount = Object.values(groups).filter(g => isMatch(Object.values(g), globalSearch)).length;
                 }
 
+                // 計算詳細資訊中，工單及進貨資訊與搜尋框相符的筆數總合
+                let detailedCount = 0;
+                if (s) {
+                    const orderMatches = orderState.data.filter(o => isMatch(Object.values(o), s)).length;
+                    const purchaseMatches = invState.data.purchaseInfo.filter(p => isMatch(Object.values(p), s)).length;
+                    detailedCount = orderMatches + purchaseMatches;
+                }
+
                 return { 
                     purchaseInfo: countMatches(invState.data.purchaseInfo, false, 'purchaseInfo'),
                     order: countMatches(orderState.data, false), 
                     inventory: invMatchCount, 
                     materialInventory: countMatches(invState.data.materialInventory, true), 
-                    consumableInventory: countMatches(invState.data.consumableInventory, false) 
+                    consumableInventory: countMatches(invState.data.consumableInventory, false),
+                    detailedInfo: detailedCount
                 };
             }, [orderState.data, invState.data, globalSearch, safetySearch, stockSearch, onlyAbnormal]);
 
@@ -1352,6 +1648,7 @@
                 if (module === 'order') return "搜尋客戶 / 工單 / 料號...";
                 if (module === 'inventory') return "搜尋單號 / 客戶 / 規格...";
                 if (module === 'purchaseInfo') return "搜尋日期 / 客戶 / 工單 / 料號...";
+                if (module === 'detailedInfo') return "搜尋工單號碼 / 料號 / 客戶名稱...";
                 return "搜尋料號 / 品名...";
             };
 
@@ -1456,6 +1753,9 @@
                         </div>
                         <div className={`absolute inset-4 md:inset-6 transition-opacity duration-300 ${module === 'consumableInventory' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
                             <StockSystem title="耗材庫存" data={invState.data.consumableInventory || []} showDataPanel={false} globalSearch={globalSearch} safetySearch={safetySearch} />
+                        </div>
+                        <div className={`absolute inset-4 md:inset-6 transition-opacity duration-300 ${module === 'detailedInfo' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
+                            <DetailedInfoSystem orderData={orderState.data} invData={invState.data} globalSearch={globalSearch} orderColumns={allOrderColumns} />
                         </div>
                     </main>
 
