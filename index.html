@@ -346,7 +346,8 @@
         };
 
         const parseOrderData = (workbook, allColumns) => {
-            const targetSheetNames = ["改裝、維修 訂單-未出", "改裝、維修 訂單-已出", "工程驗證", "雜項-未出"];
+            // 💡 資料來源擴充：新增 "待出貨"、"已出貨"
+            const targetSheetNames = ["改裝、維修 訂單-未出", "改裝、維修 訂單-已出", "工程驗證", "雜項-未出", "待出貨", "已出貨"];
             const foundSheets = workbook.SheetNames.filter(name => targetSheetNames.includes(name));
             const sheetsToProcess = foundSheets.length > 0 ? foundSheets : [workbook.SheetNames[0]];
             
@@ -538,7 +539,9 @@
                     let targetKey = null; let qtyKey = '數量';
                     if (exactName.includes('工單')) { targetKey = 'workOrders'; qtyKey = '用料表數量'; }
                     else if (exactName.includes('已發放')) { targetKey = 'issued'; qtyKey = '領用數量'; }
-                    else if (exactName.includes('待出貨')) { targetKey = 'pendingShipment'; qtyKey = '領用數量'; }
+                    // 💡 資料來源擴充：新增 "待出貨"、"已出貨" 工作表對應
+                    else if (exactName.includes('待出貨') || exactName === '待出貨') { targetKey = 'pendingShipment'; qtyKey = '領用數量'; }
+                    else if (exactName.includes('已出貨') || exactName === '已出貨') { targetKey = 'pendingShipment'; qtyKey = '領用數量'; }
                     
                     if (targetKey) {
                         foundNames.push(sheetName);
@@ -577,7 +580,7 @@
         // 4. 子模組元件
         // ==========================================
 
-        const PurchaseSystem = ({ data, globalSearch, onlyAbnormal }) => {
+        const PurchaseSystem = ({ data, globalSearch, onlyAbnormal, onUploadInv }) => {
             const filtered = useMemo(() => {
                 let list = data;
                 if (globalSearch) {
@@ -608,7 +611,17 @@
                             <div className="content-panel rounded-full p-8 mb-6 border-slate-200">
                                 <Icon name="shopping" className="w-20 h-20 text-teal-500" />
                             </div>
-                            <p className="text-lg mt-4 text-teal-700 tracking-widest text-center font-mono">請同步雲端資料或上傳包含「進貨表」的 Excel</p>
+                            <p className="text-lg text-teal-700 tracking-widest text-center font-mono font-bold">請同步雲端資料或上傳包含「進貨表」的 Excel</p>
+                            
+                            {/* 💡 擴充群組內的多檔案上傳按鈕 */}
+                            <label className="mt-6 px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 cursor-pointer shadow-md transition-all whitespace-nowrap">
+                                <Icon name="upload" className="w-4 h-4 text-white" /> 選擇多個 Excel 檔案上傳
+                                <input type="file" multiple accept=".xlsx, .xls, .csv" className="hidden" onChange={e => {
+                                    const files = Array.from(e.target.files);
+                                    if (files.length > 0) onUploadInv(files);
+                                    e.target.value = '';
+                                }} />
+                            </label>
                         </div>
                     ) : (
                         <div className="content-panel flex-1 overflow-hidden flex flex-col">
@@ -766,7 +779,7 @@
             );
         };
 
-        const OrderSystem = ({ data, columns, globalSearch, dates }) => {
+        const OrderSystem = ({ data, columns, globalSearch, dates, onUploadOrder }) => {
             const [activeTab, setActiveTab] = useState('recv');
             const [selected, setSelected] = useState(null);
 
@@ -827,7 +840,17 @@
                             <div className="content-panel rounded-full p-8 mb-6 border-slate-200">
                                 <Icon name="crosshair" className="w-20 h-20 text-teal-500" />
                             </div>
-                            <p className="text-lg mt-4 text-teal-700 tracking-widest text-center font-mono">請手動上傳訂單 Excel 資料</p>
+                            <p className="text-lg mt-4 text-teal-700 tracking-widest text-center font-mono font-bold">請手動上傳訂單 Excel 資料</p>
+                            
+                            {/* 💡 擴充群組內的多檔案上傳按鈕 */}
+                            <label className="mt-6 px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 cursor-pointer shadow-md transition-all whitespace-nowrap">
+                                <Icon name="upload" className="w-4 h-4 text-white" /> 選擇多個訂單 Excel 上傳
+                                <input type="file" multiple accept=".xlsx, .xls, .csv" className="hidden" onChange={e => {
+                                    const files = Array.from(e.target.files);
+                                    if (files.length > 0) onUploadOrder(files);
+                                    e.target.value = '';
+                                }} />
+                            </label>
                         </div>
                     ) : (
                         <>
@@ -896,7 +919,7 @@
             );
         };
 
-        const InventorySystem = ({ data, globalSearch, onlyShortage }) => {
+        const InventorySystem = ({ data, globalSearch, onlyShortage, onUploadInv }) => {
             const [activeTab, setActiveTab] = useState('工單');
             const [selected, setSelected] = useState(null);
 
@@ -937,7 +960,17 @@
                             <div className="content-panel rounded-full p-6 mb-6 border-slate-200">
                                 <Icon name="file-up" className="w-16 h-16 text-teal-500" />
                             </div>
-                            <p className="text-base mt-3 text-teal-700 tracking-widest text-center font-mono">請同步雲端資料或上傳用料明細 Excel</p>
+                            <p className="text-base mt-3 text-teal-700 tracking-widest text-center font-mono font-bold">請同步雲端資料或上傳用料明細 Excel</p>
+                            
+                            {/* 💡 擴充群組內的多檔案上傳按鈕 */}
+                            <label className="mt-6 px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 cursor-pointer shadow-md transition-all whitespace-nowrap">
+                                <Icon name="upload" className="w-4 h-4 text-white" /> 選擇多個用料明細 Excel 上傳
+                                <input type="file" multiple accept=".xlsx, .xls, .csv" className="hidden" onChange={e => {
+                                    const files = Array.from(e.target.files);
+                                    if (files.length > 0) onUploadInv(files);
+                                    e.target.value = '';
+                                }} />
+                            </label>
                         </div>
                     ) : (
                         <>
@@ -1054,7 +1087,7 @@
             );
         };
 
-        const StockSystem = ({ title, data, showDataPanel = true, globalSearch, safetySearch, stockSearch }) => {
+        const StockSystem = ({ title, data, showDataPanel = true, globalSearch, safetySearch, stockSearch, onUploadInv }) => {
             const [selected, setSelected] = useState(null);
             const filtered = useMemo(() => data.filter(i => {
                 const matchesGlobal = isMatch(Object.values(i), globalSearch);
@@ -1101,7 +1134,17 @@
                             <div className="content-panel rounded-full p-6 mb-6 border-slate-200">
                                 <Icon name="file-up" className="w-16 h-16 text-teal-500" />
                             </div>
-                            <p className="text-base mt-3 text-teal-700 tracking-widest text-center font-mono">請同步雲端資料或上傳 Excel</p>
+                            <p className="text-base mt-3 text-teal-700 tracking-widest text-center font-mono font-bold">請同步雲端資料或上傳 Excel 庫存檔案</p>
+                            
+                            {/* 💡 擴充群組內的多檔案上傳按鈕 */}
+                            <label className="mt-6 px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 cursor-pointer shadow-md transition-all whitespace-nowrap">
+                                <Icon name="upload" className="w-4 h-4 text-white" /> 選擇多個庫存 Excel 上傳
+                                <input type="file" multiple accept=".xlsx, .xls, .csv" className="hidden" onChange={e => {
+                                    const files = Array.from(e.target.files);
+                                    if (files.length > 0) onUploadInv(files);
+                                    e.target.value = '';
+                                }} />
+                            </label>
                         </div>
                     ) : (
                         <div className="content-panel flex-1 overflow-hidden flex flex-col">
@@ -1130,7 +1173,7 @@
                                                     <td className="p-3 sm:p-4 text-center font-black text-slate-800 text-base sm:text-lg bg-white/40 whitespace-nowrap border-x border-white/30">
                                                         {title === '物料庫存' && Number(row.allUsageStock) < 0 ? 0 : row.allUsageStock}
                                                     </td>
-                                                    {title === '物料庫 brass' && (
+                                                    {title === '物料庫存' && (
                                                         <td className={`p-3 sm:p-4 text-center font-bold text-base sm:text-lg bg-white/40 whitespace-nowrap border-r border-white/30 ${safetyColorClass}`}>
                                                             {displaySafety}
                                                         </td>
@@ -1254,80 +1297,6 @@
                 };
             }, [orderData, invData.purchaseInfo, invData.materialInventory, allWOs, query]);
 
-            // 💡 進出貨資訊資料來源提取：從用料明細資訊中篩出日期，不再建立時間線
-            const timelineEvents = useMemo(() => {
-                const events = [];
-                
-                const extractDates = (str) => {
-                    if (!str) return [];
-                    const regex = /(\d{4})[-/](\d{1,2})[-/](\d{1,2})/g;
-                    const matches = [...String(str).matchAll(regex)];
-                    if (matches.length > 0) {
-                        return matches.map(m => {
-                            return `${m[1]}/${String(m[2]).padStart(2, '0')}/${String(m[3]).padStart(2, '0')}`;
-                        });
-                    }
-                    const d = new Date(str);
-                    if (!isNaN(d.getTime())) {
-                        return [`${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`];
-                    }
-                    return [];
-                };
-
-                results.workOrders.forEach(g => {
-                    if (g.recvDate && g.recvDate.trim() !== '') {
-                        const extractedDates = extractDates(g.recvDate);
-                        if (extractedDates.length > 0) {
-                            extractedDates.forEach(dateStr => {
-                                events.push({
-                                    type: 'recv',
-                                    date: dateStr,
-                                    rawInfo: g.recvDate,
-                                    status: g.mainStatus,
-                                    timestamp: parseDateTimestamp(dateStr) || 0
-                                });
-                            });
-                        } else {
-                            events.push({
-                                type: 'recv',
-                                date: '未定日期',
-                                rawInfo: g.recvDate,
-                                status: g.mainStatus,
-                                timestamp: 0
-                            });
-                        }
-                    }
-                    if (g.shipDate && g.shipDate.trim() !== '') {
-                        const extractedDates = extractDates(g.shipDate);
-                        if (extractedDates.length > 0) {
-                            extractedDates.forEach(dateStr => {
-                                events.push({
-                                    type: 'ship',
-                                    date: dateStr,
-                                    rawInfo: g.shipDate,
-                                    status: g.mainStatus,
-                                    timestamp: parseDateTimestamp(dateStr) || 0
-                                });
-                            });
-                        } else {
-                            events.push({
-                                type: 'ship',
-                                date: '未定日期',
-                                rawInfo: g.shipDate,
-                                status: g.mainStatus,
-                                timestamp: 0
-                            });
-                        }
-                    }
-                });
-
-                return events.sort((a, b) => {
-                    const tA = a.timestamp === 0 ? 9999999999999 : a.timestamp;
-                    const tB = b.timestamp === 0 ? 9999999999999 : b.timestamp;
-                    return tA - tB;
-                });
-            }, [results.workOrders]);
-
             const visibleOrderColumns = useMemo(() => {
                 if (!orderColumns) return [];
                 return orderColumns.filter(col => 
@@ -1353,7 +1322,7 @@
                 );
             }
 
-            const isEmpty = !results.orders.length && !timelineEvents.length && !results.workOrders.length;
+            const isEmpty = !results.orders.length && !results.purchases.length && !results.workOrders.length;
 
             if (isEmpty) {
                 return (
@@ -1413,51 +1382,97 @@
                             </div>
                         </div>
 
-                        {/* 2. 進出貨資訊 - 下方雙排顯示 (左側，💡已取消時間線樣式，純卡片列表顯示) */}
-                        <div className="content-panel p-5 flex flex-col h-[480px]">
-                            <div className="flex items-center gap-2 mb-3 border-b border-slate-200/50 pb-2">
-                                <Icon name="calendar" className="w-5 h-5 text-teal-600" />
-                                <h3 className="font-bold text-slate-800 text-base sm:text-lg">進出貨資訊 ({timelineEvents.length})</h3>
-                            </div>
-                            <div className="overflow-auto flex-1 px-1">
-                                {timelineEvents.length === 0 ? (
-                                    <p className="text-sm text-slate-400 text-center py-20">無進出貨資訊</p>
-                                ) : (
-                                    <div className="space-y-3 py-1">
-                                        {timelineEvents.map((evt, idx) => {
-                                            const isRecv = evt.type === 'recv';
-                                            return (
-                                                <div key={idx} className="bg-white/60 hover:bg-white/95 p-3.5 rounded-lg border border-slate-200/50 shadow-sm transition-all text-left flex flex-col gap-2">
-                                                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-1.5">
-                                                        <div className="flex items-center gap-1.5">
-                                                            <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
-                                                                isRecv 
-                                                                ? 'bg-blue-100 text-blue-800 border border-blue-200' 
-                                                                : 'bg-purple-100 text-purple-800 border border-purple-200'
-                                                            }`}>
-                                                                {isRecv ? '進貨資訊' : '出貨資訊'}
-                                                            </span>
-                                                            <span className="text-xs sm:text-sm font-bold text-slate-800 font-tech-mono">
-                                                                {evt.date}
-                                                            </span>
-                                                        </div>
-                                                        {evt.status && <StatusBadge status={evt.status} className="scale-90" />}
-                                                    </div>
-                                                    <div className="text-xs sm:text-sm">
-                                                        <span className="font-semibold text-slate-700 whitespace-pre-wrap break-words block">
-                                                            {evt.rawInfo || '-'}
-                                                        </span>
-                                                    </div>
+                        {/* 💡 2. 進貨與出貨資訊並排顯示 (並排，左側"進貨資訊"右側"出貨資訊" - 移除日期拆分，直觀卡片顯示) */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 xl:col-span-2">
+                            {/* 左側：進貨資訊 */}
+                            <div className="content-panel p-5 flex flex-col h-[480px]">
+                                <div className="flex items-center gap-2 mb-3 border-b border-slate-200/50 pb-2">
+                                    <Icon name="calendar" className="w-5 h-5 text-blue-600" />
+                                    <h3 className="font-bold text-slate-800 text-base sm:text-lg">
+                                        進貨資訊 ({results.workOrders.filter(g => g.recvDate).length + results.purchases.length})
+                                    </h3>
+                                </div>
+                                <div className="overflow-auto flex-1 px-1 space-y-3">
+                                    {/* (A) 用料工單的進貨日期 */}
+                                    {results.workOrders.filter(g => g.recvDate).map((g, idx) => (
+                                        <div key={`wo-recv-${idx}`} className="bg-blue-50/30 hover:bg-white/95 p-3.5 rounded-lg border border-blue-100 shadow-sm transition-all text-left flex flex-col gap-2">
+                                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-blue-50 pb-1.5">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
+                                                        工單進貨
+                                                    </span>
+                                                    <span className="font-bold text-slate-800 text-sm font-tech-mono">{g.id}</span>
                                                 </div>
-                                            );
-                                        })}
-                                    </div>
-                                )}
+                                                <StatusBadge status={g.mainStatus} className="scale-90" />
+                                            </div>
+                                            <div className="text-xs sm:text-sm">
+                                                <div className="font-bold text-slate-700">預計進貨日：<span className="text-blue-700 font-extrabold">{g.recvDate}</span></div>
+                                                <div className="text-slate-500 mt-1">{g.customer} | {g.mainSpec}</div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {/* (B) 採購表的進貨歷史 */}
+                                    {results.purchases.map((p, idx) => (
+                                        <div key={`pur-${idx}`} className="bg-emerald-50/30 hover:bg-white/95 p-3.5 rounded-lg border border-emerald-100 shadow-sm transition-all text-left flex flex-col gap-2">
+                                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-50 pb-1.5">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                                        採購進貨
+                                                    </span>
+                                                    <span className="font-bold text-slate-800 text-sm font-tech-mono">{p.workOrder || '無工單'}</span>
+                                                </div>
+                                                {p.status && <StatusBadge status={p.status} className="scale-90" />}
+                                            </div>
+                                            <div className="text-xs sm:text-sm">
+                                                <div className="font-bold text-slate-700">進貨日期：<span className="text-emerald-700 font-extrabold">{p.date || '無日期'}</span></div>
+                                                <div className="text-slate-600 mt-1 font-mono font-semibold">料號: {p.partNo} (數量: {p.qty})</div>
+                                                <div className="text-slate-500 mt-0.5">{p.customer} | {p.model}</div>
+                                                {p.note && <div className="text-xs text-amber-700 mt-1 bg-amber-50/50 p-1 rounded font-sans">備註: {p.note}</div>}
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {results.workOrders.filter(g => g.recvDate).length === 0 && results.purchases.length === 0 && (
+                                        <p className="text-sm text-slate-400 text-center py-20">無進貨資訊</p>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* 右側：出貨資訊 */}
+                            <div className="content-panel p-5 flex flex-col h-[480px]">
+                                <div className="flex items-center gap-2 mb-3 border-b border-slate-200/50 pb-2">
+                                    <Icon name="truck" className="w-5 h-5 text-purple-600" />
+                                    <h3 className="font-bold text-slate-800 text-base sm:text-lg">
+                                        出貨資訊 ({results.workOrders.filter(g => g.shipDate).length})
+                                    </h3>
+                                </div>
+                                <div className="overflow-auto flex-1 px-1 space-y-3">
+                                    {/* (A) 用料工單的出貨日期 */}
+                                    {results.workOrders.filter(g => g.shipDate).map((g, idx) => (
+                                        <div key={`wo-ship-${idx}`} className="bg-purple-50/30 hover:bg-white/95 p-3.5 rounded-lg border border-purple-100 shadow-sm transition-all text-left flex flex-col gap-2">
+                                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-purple-50 pb-1.5">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                                                        工單出貨
+                                                    </span>
+                                                    <span className="font-bold text-slate-800 text-sm font-tech-mono">{g.id}</span>
+                                                </div>
+                                                <StatusBadge status={g.mainStatus} className="scale-90" />
+                                            </div>
+                                            <div className="text-xs sm:text-sm">
+                                                <div className="font-bold text-slate-700">預計出貨日：<span className="text-purple-700 font-extrabold">{g.shipDate}</span></div>
+                                                <div className="text-slate-500 mt-1">{g.customer} | {g.mainSpec}</div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {results.workOrders.filter(g => g.shipDate).length === 0 && (
+                                        <p className="text-sm text-slate-400 text-center py-20">無出貨資訊</p>
+                                    )}
+                                </div>
                             </div>
                         </div>
 
-                        {/* 3. 用料明細&庫存 - 下方雙排顯示 (右側，庫存為負數時會動態載入並顯示"相關工單"明細) */}
-                        <div className="content-panel p-5 flex flex-col h-fit">
+                        {/* 💡 3. 用料明細&庫存 - 在下方單獨一整排大區塊顯示（明細內字體已全面放大） */}
+                        <div className="content-panel p-5 flex flex-col h-fit xl:col-span-2">
                             <div className="flex items-center gap-2 mb-3 border-b border-slate-200/50 pb-2">
                                 <Icon name="spreadsheet" className="w-5 h-5 text-teal-600" />
                                 <h3 className="font-bold text-slate-800 text-base sm:text-lg">用料明細&庫存 ({results.workOrders.length})</h3>
@@ -1467,42 +1482,45 @@
                                     <p className="text-sm text-slate-400 text-center py-24">無用料明細&庫存</p>
                                 ) : (
                                     results.workOrders.map(g => (
-                                        <div key={g.id} className="border border-slate-200/60 bg-white/40 p-3 rounded-lg shadow-sm">
-                                            <div className="flex justify-between items-center border-b border-slate-200/50 pb-1.5 mb-2">
-                                                <span className="font-bold text-teal-800 text-sm sm:text-base">{g.id}</span>
-                                                <StatusBadge status={g.mainStatus} className="scale-90" />
+                                        <div key={g.id} className="border border-slate-200/60 bg-white/40 p-4 rounded-lg shadow-sm">
+                                            <div className="flex justify-between items-center border-b border-slate-200/50 pb-2 mb-3">
+                                                <span className="font-bold text-teal-800 text-base sm:text-lg">{g.id}</span>
+                                                <StatusBadge status={g.mainStatus} className="scale-95" />
                                             </div>
-                                            <div className="text-xs text-slate-500 mb-2" title={`${g.customer} | ${g.mainSpec}`}>
-                                                <span className="font-bold text-slate-800">{g.customer}</span> <span className="mx-1 text-slate-300">|</span> <span>{g.mainSpec}</span>
+                                            <div className="text-sm text-slate-600 mb-3" title={`${g.customer} | ${g.mainSpec}`}>
+                                                <span className="font-bold text-slate-800">{g.customer}</span> <span className="mx-2 text-slate-300">|</span> <span>{g.mainSpec}</span>
                                             </div>
-                                            <div className="space-y-1.5 text-xs">
+                                            {/* 💡 明細內容字體已放大，排版更寬敞 */}
+                                            <div className="space-y-2.5 text-sm sm:text-base">
                                                 {g.items.map((item, idx) => {
                                                     const stockVal = parseFloat(getDisplayStock(item.partNo, item.stockQty));
                                                     const isNegative = !isNaN(stockVal) && stockVal < 0;
                                                     const relatedWOs = isNegative ? getRelatedWorkOrders(item.partNo) : [];
 
                                                     return (
-                                                        <div key={idx} className="bg-white/70 p-2 rounded border border-slate-100 flex flex-col gap-1.5">
-                                                            <div className="flex flex-col sm:flex-row justify-between gap-1 sm:gap-0">
-                                                                <span className="font-mono font-bold text-slate-700">{item.partNo}</span>
-                                                                <span className="text-slate-500 break-words max-w-full sm:max-w-[180px] md:max-w-[250px]" title={item.spec}>{item.spec}</span>
-                                                                <div className="flex gap-3 text-right whitespace-nowrap">
-                                                                    <span className="text-teal-600 font-semibold">需求: {item.plannedQty}</span>
-                                                                    <span className={isNegative ? "text-red-500 font-bold" : "text-slate-500"}>庫存: {getDisplayStock(item.partNo, item.stockQty)}</span>
+                                                        <div key={idx} className="bg-white/70 p-3 rounded-lg border border-slate-100 flex flex-col gap-2 shadow-sm">
+                                                            <div className="flex flex-col sm:flex-row justify-between gap-1.5 sm:gap-4 items-start sm:items-center">
+                                                                <span className="font-mono font-bold text-slate-800 text-base">{item.partNo}</span>
+                                                                <span className="text-slate-500 break-words max-w-full sm:max-w-[240px] md:max-w-[320px] text-sm" title={item.spec}>{item.spec}</span>
+                                                                <div className="flex gap-4 text-right whitespace-nowrap text-sm sm:text-base ml-auto">
+                                                                    <span className="text-teal-600 font-bold">需求: {item.plannedQty}</span>
+                                                                    <span className={isNegative ? "text-red-500 font-extrabold text-base" : "text-slate-600 font-semibold"}>
+                                                                        庫存: {getDisplayStock(item.partNo, item.stockQty)}
+                                                                    </span>
                                                                 </div>
                                                             </div>
                                                             
                                                             {isNegative && relatedWOs.length > 0 && (
-                                                                <div className="mt-1.5 pl-3 border-l-2 border-red-400 space-y-1 bg-red-50/30 p-1.5 rounded">
-                                                                    <div className="text-[10px] font-bold text-red-600 uppercase tracking-wider flex items-center gap-1">
-                                                                        <Icon name="alert" className="w-3 h-3 text-red-500" />
-                                                                        相關工單 ({relatedWOs.length})
+                                                                <div className="mt-2 pl-3.5 border-l-2 border-red-400 space-y-1.5 bg-red-50/40 p-2.5 rounded-lg text-xs sm:text-sm">
+                                                                    <div className="font-bold text-red-600 uppercase tracking-wider flex items-center gap-1">
+                                                                        <Icon name="alert" className="w-4 h-4 text-red-500 shrink-0" />
+                                                                        相關工單追蹤 ({relatedWOs.length})
                                                                     </div>
-                                                                    <div className="max-h-[120px] overflow-y-auto space-y-1">
+                                                                    <div className="max-h-[140px] overflow-y-auto space-y-1">
                                                                         {relatedWOs.map((rwo, rIdx) => (
-                                                                            <div key={rIdx} className="flex justify-between text-[11px] text-slate-500 bg-white/70 px-2 py-0.5 rounded border border-red-100/30">
-                                                                                <span className="font-mono text-teal-700 font-semibold">{rwo.id}</span>
-                                                                                <span>用料表數量: <span className="font-bold text-slate-700">{rwo.qty}</span></span>
+                                                                            <div key={rIdx} className="flex justify-between text-xs text-slate-600 bg-white/80 px-2.5 py-1 rounded border border-red-100/40 font-mono">
+                                                                                <span className="text-teal-700 font-bold">{rwo.id}</span>
+                                                                                <span>用料表需求: <span className="font-bold text-slate-800">{rwo.qty}</span></span>
                                                                             </div>
                                                                         ))}
                                                                     </div>
@@ -1628,16 +1646,24 @@
                     const json = await response.json();
                     const processedData = processJsonToInvState(json);
                     
-                    setInvState(prev => ({
-                        ...prev,
-                        data: {
-                            ...prev.data,
-                            purchaseInfo: processedData.purchaseInfo
-                        },
-                        files: prev.files.includes('Cloud API Source') ? prev.files : [...prev.files, 'Cloud API Source']
-                    }));
+                    // 💡 雲端同步也改為智慧累加合併，不覆蓋既有資訊
+                    setInvState(prev => {
+                        const nextPurchases = [...(prev.data.purchaseInfo || [])];
+                        processedData.purchaseInfo.forEach(p => {
+                            const exists = nextPurchases.some(orig => orig.workOrder === p.workOrder && orig.date === p.date && orig.partNo === p.partNo);
+                            if (!exists) nextPurchases.push(p);
+                        });
+                        return {
+                            ...prev,
+                            data: {
+                                ...prev.data,
+                                purchaseInfo: nextPurchases
+                            },
+                            files: prev.files.includes('Cloud API Source') ? prev.files : [...prev.files, 'Cloud API Source']
+                        };
+                    });
                     
-                    setMsg({ type: 'success', text: `同步成功！已獲取 ${processedData.purchaseInfo.length} 筆進貨資料` });
+                    setMsg({ type: 'success', text: `同步成功！已合併獲取 ${processedData.purchaseInfo.length} 筆進貨資料` });
                 } catch (err) {
                     console.error('Sync Error:', err);
                     setMsg({ type: 'error', text: err.message || '發生不明連線錯誤，請稍後再試' });
@@ -1726,29 +1752,46 @@
                 };
             }, [orderState.data, invState.data, globalSearch, safetySearch, stockSearch, onlyAbnormal]);
 
+            // 💡 所有群組與上傳按鈕已修改為可同時上傳多檔案，並智慧追加合併
             const onUploadOrder = async (files) => {
                 if (!files || files.length === 0) return;
-                setIsUploading(true); setMsg({ type: 'info', text: '正在讀取訂單...' });
+                setIsUploading(true); setMsg({ type: 'info', text: '正在載入並解析多個訂單檔案...' });
                 try {
                     const results = await Promise.all(files.map(file => readExcelFile(file).then(workbook => parseOrderData(workbook, allOrderColumns))));
-                    let merged = []; results.forEach(res => merged = [...merged, ...res.data]);
-                    setOrderState({ data: merged, files: files.map(f => f.name) });
-                    setMsg({ type: 'success', text: '成功載入訂單檔案' });
+                    let merged = []; 
+                    results.forEach(res => merged = [...merged, ...res.data]);
+                    
+                    setOrderState(prev => ({
+                        data: [...prev.data, ...merged],
+                        files: [...new Set([...prev.files, ...files.map(f => f.name)])]
+                    }));
+                    setMsg({ type: 'success', text: `成功載入並合併 ${files.length} 個訂單檔案！` });
                 } catch (err) { setMsg({ type: 'error', text: '上傳失敗：檔案結構不符' }); }
                 finally { setIsUploading(false); setTimeout(() => setMsg(null), 5000); }
             };
 
+            // 💡 所有群組與上傳按鈕已修改為可同時上傳多檔案，並智慧追加合併
             const onUploadInv = async (files) => {
                 if (!files || files.length === 0) return;
-                setIsUploading(true); setMsg({ type: 'info', text: '正在讀取用料與庫存資料...' });
+                setIsUploading(true); setMsg({ type: 'info', text: '正在載入並解析多個用料庫存檔案...' });
                 try {
                     const results = await Promise.all(files.map(file => readExcelFile(file).then(workbook => parseInventoryData(workbook))));
                     let merged = { purchaseInfo: [], workOrders: [], issued: [], pendingShipment: [], materialInventory: [], consumableInventory: [] };
                     results.forEach(res => {
                         Object.keys(merged).forEach(key => merged[key] = [...merged[key], ...res.data[key]]);
                     });
-                    setInvState({ data: merged, files: files.map(f => f.name) });
-                    setMsg({ type: 'success', text: '成功解析庫存與用料資料' });
+                    
+                    setInvState(prev => {
+                        const newData = {};
+                        Object.keys(prev.data).forEach(key => {
+                            newData[key] = [...(prev.data[key] || []), ...(merged[key] || [])];
+                        });
+                        return {
+                            data: newData,
+                            files: [...new Set([...prev.files, ...files.map(f => f.name)])]
+                        };
+                    });
+                    setMsg({ type: 'success', text: `成功解析並合併 ${files.length} 個用料庫存檔案！` });
                 } catch (err) { setMsg({ type: 'error', text: '上傳失敗：資料解析錯誤' }); }
                 finally { setIsUploading(false); setTimeout(() => setMsg(null), 5000); }
             };
@@ -1829,6 +1872,7 @@
                                     </button>
                                 )}
 
+                                {/* 💡 主選單上傳 Excel 按鈕已啟用 multiple */}
                                 <label className={`px-3 py-1.5 bg-slate-700 text-white rounded-lg text-sm font-bold flex items-center gap-1.5 shadow-md transition-all whitespace-nowrap ${isUploading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-slate-800'}`}>
                                     <Icon name="upload" className="w-4 h-4 text-white" /> {isUploading ? '處理中...' : '上傳 Excel'}
                                     <input type="file" multiple accept=".xlsx, .xls, .csv" className="hidden" onChange={e => { 
@@ -1849,19 +1893,19 @@
                     </header>
                     <main className="flex-1 relative p-4 md:p-6 overflow-hidden">
                         <div className={`absolute inset-4 md:inset-6 transition-opacity duration-300 ${module === 'purchaseInfo' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
-                            <PurchaseSystem data={invState.data.purchaseInfo} globalSearch={globalSearch} onlyAbnormal={onlyAbnormal} />
+                            <PurchaseSystem data={invState.data.purchaseInfo} globalSearch={globalSearch} onlyAbnormal={onlyAbnormal} onUploadInv={onUploadInv} />
                         </div>
                         <div className={`absolute inset-4 md:inset-6 transition-opacity duration-300 ${module === 'order' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
-                            <OrderSystem data={orderState.data} columns={allOrderColumns} globalSearch={globalSearch} dates={dates} />
+                            <OrderSystem data={orderState.data} columns={allOrderColumns} globalSearch={globalSearch} dates={dates} onUploadOrder={onUploadOrder} />
                         </div>
                         <div className={`absolute inset-4 md:inset-6 transition-opacity duration-300 ${module === 'inventory' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
-                            <InventorySystem data={invState.data} globalSearch={globalSearch} onlyShortage={onlyShortage} />
+                            <InventorySystem data={invState.data} globalSearch={globalSearch} onlyShortage={onlyShortage} onUploadInv={onUploadInv} />
                         </div>
                         <div className={`absolute inset-4 md:inset-6 transition-opacity duration-300 ${module === 'materialInventory' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
-                            <StockSystem title="物料庫存" data={invState.data.materialInventory || []} showDataPanel={true} globalSearch={globalSearch} safetySearch={safetySearch} stockSearch={stockSearch} />
+                            <StockSystem title="物料庫存" data={invState.data.materialInventory || []} showDataPanel={true} globalSearch={globalSearch} safetySearch={safetySearch} stockSearch={stockSearch} onUploadInv={onUploadInv} />
                         </div>
                         <div className={`absolute inset-4 md:inset-6 transition-opacity duration-300 ${module === 'consumableInventory' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
-                            <StockSystem title="耗材庫存" data={invState.data.consumableInventory || []} showDataPanel={false} globalSearch={globalSearch} safetySearch={safetySearch} />
+                            <StockSystem title="耗材庫存" data={invState.data.consumableInventory || []} showDataPanel={false} globalSearch={globalSearch} safetySearch={safetySearch} onUploadInv={onUploadInv} />
                         </div>
                         <div className={`absolute inset-4 md:inset-6 transition-opacity duration-300 ${module === 'detailedInfo' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
                             <DetailedInfoSystem orderData={orderState.data} invData={invState.data} globalSearch={globalSearch} orderColumns={allOrderColumns} />
@@ -1882,7 +1926,7 @@
                                 </div>
                                 <div className="p-6 text-left">
                                     <p className="text-sm text-slate-600 mb-4 leading-relaxed">
-                                        請輸入您的自訂 API 金鑰進行驗證。
+                                        請輸入您的自訂 API 金鑰進行驗裝。
                                         <br/>
                                         <span className="text-red-500 text-xs font-bold font-sans">注意：金鑰輸入錯誤將導致 401 錯誤。</span>
                                     </p>
