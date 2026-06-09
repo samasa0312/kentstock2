@@ -613,12 +613,12 @@
                             </div>
                             <p className="text-lg text-teal-700 tracking-widest text-center font-mono font-bold">請同步雲端資料或上傳包含「進貨表」的 Excel</p>
                             
-                            {/* 💡 擴充群組內的多檔案上傳按鈕 */}
+                            {/* 💡 恢復單一檔案上傳 */}
                             <label className="mt-6 px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 cursor-pointer shadow-md transition-all whitespace-nowrap">
-                                <Icon name="upload" className="w-4 h-4 text-white" /> 選擇多個 Excel 檔案上傳
-                                <input type="file" multiple accept=".xlsx, .xls, .csv" className="hidden" onChange={e => {
-                                    const files = Array.from(e.target.files);
-                                    if (files.length > 0) onUploadInv(files);
+                                <Icon name="upload" className="w-4 h-4 text-white" /> 選擇 Excel 檔案上傳
+                                <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={e => {
+                                    const file = e.target.files[0];
+                                    if (file) onUploadInv(file);
                                     e.target.value = '';
                                 }} />
                             </label>
@@ -842,12 +842,12 @@
                             </div>
                             <p className="text-lg mt-4 text-teal-700 tracking-widest text-center font-mono font-bold">請手動上傳訂單 Excel 資料</p>
                             
-                            {/* 💡 擴充群組內的多檔案上傳按鈕 */}
+                            {/* 💡 恢復單一檔案上傳 */}
                             <label className="mt-6 px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 cursor-pointer shadow-md transition-all whitespace-nowrap">
-                                <Icon name="upload" className="w-4 h-4 text-white" /> 選擇多個訂單 Excel 上傳
-                                <input type="file" multiple accept=".xlsx, .xls, .csv" className="hidden" onChange={e => {
-                                    const files = Array.from(e.target.files);
-                                    if (files.length > 0) onUploadOrder(files);
+                                <Icon name="upload" className="w-4 h-4 text-white" /> 選擇訂單 Excel 上傳
+                                <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={e => {
+                                    const file = e.target.files[0];
+                                    if (file) onUploadOrder(file);
                                     e.target.value = '';
                                 }} />
                             </label>
@@ -962,12 +962,12 @@
                             </div>
                             <p className="text-base mt-3 text-teal-700 tracking-widest text-center font-mono font-bold">請同步雲端資料或上傳用料明細 Excel</p>
                             
-                            {/* 💡 擴充群組內的多檔案上傳按鈕 */}
+                            {/* 💡 恢復單一檔案上傳 */}
                             <label className="mt-6 px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 cursor-pointer shadow-md transition-all whitespace-nowrap">
-                                <Icon name="upload" className="w-4 h-4 text-white" /> 選擇多個用料明細 Excel 上傳
-                                <input type="file" multiple accept=".xlsx, .xls, .csv" className="hidden" onChange={e => {
-                                    const files = Array.from(e.target.files);
-                                    if (files.length > 0) onUploadInv(files);
+                                <Icon name="upload" className="w-4 h-4 text-white" /> 選擇用料明細 Excel 上傳
+                                <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={e => {
+                                    const file = e.target.files[0];
+                                    if (file) onUploadInv(file);
                                     e.target.value = '';
                                 }} />
                             </label>
@@ -1136,12 +1136,12 @@
                             </div>
                             <p className="text-base mt-3 text-teal-700 tracking-widest text-center font-mono font-bold">請同步雲端資料或上傳 Excel 庫存檔案</p>
                             
-                            {/* 💡 擴充群組內的多檔案上傳按鈕 */}
+                            {/* 💡 恢復單一檔案上傳 */}
                             <label className="mt-6 px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 cursor-pointer shadow-md transition-all whitespace-nowrap">
-                                <Icon name="upload" className="w-4 h-4 text-white" /> 選擇多個庫存 Excel 上傳
-                                <input type="file" multiple accept=".xlsx, .xls, .csv" className="hidden" onChange={e => {
-                                    const files = Array.from(e.target.files);
-                                    if (files.length > 0) onUploadInv(files);
+                                <Icon name="upload" className="w-4 h-4 text-white" /> 選擇庫存 Excel 上傳
+                                <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={e => {
+                                    const file = e.target.files[0];
+                                    if (file) onUploadInv(file);
                                     e.target.value = '';
                                 }} />
                             </label>
@@ -1726,46 +1726,36 @@
                 };
             }, [orderState.data, invState.data, globalSearch, safetySearch, stockSearch, onlyAbnormal]);
 
-            // 💡 所有群組與上傳按鈕已修改為可同時上傳多檔案，並智慧追加合併
-            const onUploadOrder = async (files) => {
-                if (!files || files.length === 0) return;
-                setIsUploading(true); setMsg({ type: 'info', text: '正在載入並解析多個訂單檔案...' });
+            // 💡 恢復單一檔案上傳與覆蓋
+            const onUploadOrder = async (file) => {
+                if (!file) return;
+                setIsUploading(true); setMsg({ type: 'info', text: '正在載入並解析訂單檔案...' });
                 try {
-                    const results = await Promise.all(files.map(file => readExcelFile(file).then(workbook => parseOrderData(workbook, allOrderColumns))));
-                    let merged = []; 
-                    results.forEach(res => merged = [...merged, ...res.data]);
+                    const workbook = await readExcelFile(file);
+                    const res = parseOrderData(workbook, allOrderColumns);
                     
-                    setOrderState(prev => ({
-                        data: [...prev.data, ...merged],
-                        files: [...new Set([...prev.files, ...files.map(f => f.name)])]
-                    }));
-                    setMsg({ type: 'success', text: `成功載入並合併 ${files.length} 個訂單檔案！` });
+                    setOrderState({
+                        data: res.data,
+                        files: [file.name]
+                    });
+                    setMsg({ type: 'success', text: `成功載入 ${file.name} 訂單檔案！` });
                 } catch (err) { setMsg({ type: 'error', text: '上傳失敗：檔案結構不符' }); }
                 finally { setIsUploading(false); setTimeout(() => setMsg(null), 5000); }
             };
 
-            // 💡 所有群組與上傳按鈕已修改為可同時上傳多檔案，並智慧追加合併
-            const onUploadInv = async (files) => {
-                if (!files || files.length === 0) return;
-                setIsUploading(true); setMsg({ type: 'info', text: '正在載入並解析多個用料庫存檔案...' });
+            // 💡 恢復單一檔案上傳與覆蓋
+            const onUploadInv = async (file) => {
+                if (!file) return;
+                setIsUploading(true); setMsg({ type: 'info', text: '正在載入並解析用料庫存檔案...' });
                 try {
-                    const results = await Promise.all(files.map(file => readExcelFile(file).then(workbook => parseInventoryData(workbook))));
-                    let merged = { purchaseInfo: [], workOrders: [], issued: [], pendingShipment: [], materialInventory: [], consumableInventory: [] };
-                    results.forEach(res => {
-                        Object.keys(merged).forEach(key => merged[key] = [...merged[key], ...res.data[key]]);
-                    });
+                    const workbook = await readExcelFile(file);
+                    const res = parseInventoryData(workbook);
                     
-                    setInvState(prev => {
-                        const newData = {};
-                        Object.keys(prev.data).forEach(key => {
-                            newData[key] = [...(prev.data[key] || []), ...(merged[key] || [])];
-                        });
-                        return {
-                            data: newData,
-                            files: [...new Set([...prev.files, ...files.map(f => f.name)])]
-                        };
+                    setInvState({
+                        data: res.data,
+                        files: [file.name]
                     });
-                    setMsg({ type: 'success', text: `成功解析並合併 ${files.length} 個用料庫存檔案！` });
+                    setMsg({ type: 'success', text: `成功解析 ${file.name} 用料庫存檔案！` });
                 } catch (err) { setMsg({ type: 'error', text: '上傳失敗：資料解析錯誤' }); }
                 finally { setIsUploading(false); setTimeout(() => setMsg(null), 5000); }
             };
@@ -1846,13 +1836,13 @@
                                     </button>
                                 )}
 
-                                {/* 💡 主選單上傳 Excel 按鈕已啟用 multiple */}
+                                {/* 💡 恢復單一檔案上傳 */}
                                 <label className={`px-3 py-1.5 bg-slate-700 text-white rounded-lg text-sm font-bold flex items-center gap-1.5 shadow-md transition-all whitespace-nowrap ${isUploading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-slate-800'}`}>
                                     <Icon name="upload" className="w-4 h-4 text-white" /> {isUploading ? '處理中...' : '上傳 Excel'}
-                                    <input type="file" multiple accept=".xlsx, .xls, .csv" className="hidden" onChange={e => { 
-                                        const files = Array.from(e.target.files);
-                                        if (files.length === 0) return;
-                                        if (module === 'order') onUploadOrder(files); else onUploadInv(files);
+                                    <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={e => { 
+                                        const file = e.target.files[0];
+                                        if (!file) return;
+                                        if (module === 'order') onUploadOrder(file); else onUploadInv(file);
                                         e.target.value=''; 
                                     }} disabled={isUploading} />
                                 </label>
