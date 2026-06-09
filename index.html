@@ -506,7 +506,7 @@
                             yearlyData[yr] = {
                                 usage: getVal(row, [`${yr}用量`, `${yr}年度用量`], [`${yr}用量`]),
                                 q1: getVal(row, [`${yr}第一季`, `${yr}第1季`, `${yr}1季`, `${yr}q1`], [`${yr}第一季`, `${yr}第1季`, `${yr}1季`, `${yr}q1`]),
-                                q2: getVal(row, [`${yr}第二季`, `${yr}第2季`, `${yr}2季`, `${yr}q2`], [`${yr}第二季`, `${yr}第2季`, `${yr}2季`, `${yr}q2`]),
+                                p2: getVal(row, [`${yr}第二季`, `${yr}第2季`, `${yr}2季`, `${yr}q2`], [`${yr}第二季`, `${yr}第2季`, `${yr}2季`, `${yr}q2`]),
                                 q3: getVal(row, [`${yr}第三季`, `${yr}第3季`, `${yr}3季`, `${yr}q3`], [`${yr}第三季`, `${yr}第3季`, `${yr}3季`, `${yr}q3`]),
                                 q4: getVal(row, [`${yr}第四季`, `${yr}第4季`, `${yr}4季`, `${yr}q4`], [`${yr}第四季`, `${yr}第4季`, `${yr}4季`, `${yr}q4`]),
                                 avg: getVal(row, [`${yr}平均值`, `${yr}平均`], [`${yr}平均`])
@@ -712,7 +712,7 @@
                                                 <td className="px-4 py-4 font-bold text-slate-800 font-sans whitespace-nowrap">{yr}</td>
                                                 <td className="px-4 py-4 font-black text-teal-600 text-lg whitespace-nowrap">{d.usage || '-'}</td>
                                                 <td className="px-4 py-4 whitespace-nowrap">{d.q1 || '-'}</td>
-                                                <td className="px-4 py-4 whitespace-nowrap">{d.q2 || '-'}</td>
+                                                <td className="px-4 py-4 whitespace-nowrap">{d.usage || '-'}</td>
                                                 <td className="px-4 py-4 whitespace-nowrap">{d.q3 || '-'}</td>
                                                 <td className="px-4 py-4 whitespace-nowrap">{d.q4 || '-'}</td>
                                                 <td className="px-4 py-4 font-bold text-emerald-600 text-lg whitespace-nowrap">{d.avg || '-'}</td>
@@ -1130,7 +1130,7 @@
                                                     <td className="p-3 sm:p-4 text-center font-black text-slate-800 text-base sm:text-lg bg-white/40 whitespace-nowrap border-x border-white/30">
                                                         {title === '物料庫存' && Number(row.allUsageStock) < 0 ? 0 : row.allUsageStock}
                                                     </td>
-                                                    {title === '物料庫存' && (
+                                                    {title === '物料庫 brass' && (
                                                         <td className={`p-3 sm:p-4 text-center font-bold text-base sm:text-lg bg-white/40 whitespace-nowrap border-r border-white/30 ${safetyColorClass}`}>
                                                             {displaySafety}
                                                         </td>
@@ -1176,6 +1176,30 @@
                 return actualInventoryMap[normalizedPartNo] !== undefined ? actualInventoryMap[normalizedPartNo] : originalStock;
             };
 
+            // 💡 負庫存關聯工單查詢
+            const getRelatedWorkOrders = (partNo) => {
+                if (!partNo) return [];
+                const target = String(partNo).trim().toLowerCase();
+                const list = [];
+                // 搜尋工單
+                if (invData.workOrders) {
+                    invData.workOrders.forEach(wo => {
+                        if (String(wo.partNo).trim().toLowerCase() === target) {
+                            list.push({ id: wo.id, qty: wo.plannedQty });
+                        }
+                    });
+                }
+                // 搜尋已發放
+                if (invData.issued) {
+                    invData.issued.forEach(wo => {
+                        if (String(wo.partNo).trim().toLowerCase() === target) {
+                            list.push({ id: wo.id, qty: wo.plannedQty });
+                        }
+                    });
+                }
+                return list;
+            };
+
             const allWOs = useMemo(() => {
                 return [
                     ...(invData.workOrders || []),
@@ -1215,7 +1239,7 @@
                     ...matchedWOs.flatMap(g => g.items.map(i => String(i.partNo || '').trim().toLowerCase()))
                 ].filter(Boolean));
 
-                // 4. 篩選物料庫存 (直接搜尋吻合或存在於關聯料號清單中者)
+                // 4. 篩選物料庫存
                 const matchedInventory = (invData.materialInventory || []).filter(item => {
                     const isDirect = isMatch([item.id, item.spec], query);
                     const isRelational = item.id && relevantPartNos.has(String(item.id).trim().toLowerCase());
@@ -1230,7 +1254,80 @@
                 };
             }, [orderData, invData.purchaseInfo, invData.materialInventory, allWOs, query]);
 
-            // 過濾工單（原相關訂單）顯示欄位：排除 "預計進貨日期", "預計出貨日期", "檔案來源", 以及用視窗開啟顯示的 "作業注意事項" 和 "備註"
+            // 💡 進出貨資訊資料來源提取：從用料明細資訊中篩出日期，不再建立時間線
+            const timelineEvents = useMemo(() => {
+                const events = [];
+                
+                const extractDates = (str) => {
+                    if (!str) return [];
+                    const regex = /(\d{4})[-/](\d{1,2})[-/](\d{1,2})/g;
+                    const matches = [...String(str).matchAll(regex)];
+                    if (matches.length > 0) {
+                        return matches.map(m => {
+                            return `${m[1]}/${String(m[2]).padStart(2, '0')}/${String(m[3]).padStart(2, '0')}`;
+                        });
+                    }
+                    const d = new Date(str);
+                    if (!isNaN(d.getTime())) {
+                        return [`${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`];
+                    }
+                    return [];
+                };
+
+                results.workOrders.forEach(g => {
+                    if (g.recvDate && g.recvDate.trim() !== '') {
+                        const extractedDates = extractDates(g.recvDate);
+                        if (extractedDates.length > 0) {
+                            extractedDates.forEach(dateStr => {
+                                events.push({
+                                    type: 'recv',
+                                    date: dateStr,
+                                    rawInfo: g.recvDate,
+                                    status: g.mainStatus,
+                                    timestamp: parseDateTimestamp(dateStr) || 0
+                                });
+                            });
+                        } else {
+                            events.push({
+                                type: 'recv',
+                                date: '未定日期',
+                                rawInfo: g.recvDate,
+                                status: g.mainStatus,
+                                timestamp: 0
+                            });
+                        }
+                    }
+                    if (g.shipDate && g.shipDate.trim() !== '') {
+                        const extractedDates = extractDates(g.shipDate);
+                        if (extractedDates.length > 0) {
+                            extractedDates.forEach(dateStr => {
+                                events.push({
+                                    type: 'ship',
+                                    date: dateStr,
+                                    rawInfo: g.shipDate,
+                                    status: g.mainStatus,
+                                    timestamp: parseDateTimestamp(dateStr) || 0
+                                });
+                            });
+                        } else {
+                            events.push({
+                                type: 'ship',
+                                date: '未定日期',
+                                rawInfo: g.shipDate,
+                                status: g.mainStatus,
+                                timestamp: 0
+                            });
+                        }
+                    }
+                });
+
+                return events.sort((a, b) => {
+                    const tA = a.timestamp === 0 ? 9999999999999 : a.timestamp;
+                    const tB = b.timestamp === 0 ? 9999999999999 : b.timestamp;
+                    return tA - tB;
+                });
+            }, [results.workOrders]);
+
             const visibleOrderColumns = useMemo(() => {
                 if (!orderColumns) return [];
                 return orderColumns.filter(col => 
@@ -1256,7 +1353,7 @@
                 );
             }
 
-            const isEmpty = !results.orders.length && !results.purchases.length && !results.workOrders.length;
+            const isEmpty = !results.orders.length && !timelineEvents.length && !results.workOrders.length;
 
             if (isEmpty) {
                 return (
@@ -1273,8 +1370,8 @@
             return (
                 <div className="h-full overflow-y-auto pb-12 pr-2">
                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                        {/* 1. 工單 */}
-                        <div className="content-panel p-5 flex flex-col h-[380px]">
+                        {/* 1. 工單 - 單獨在上方一排顯示 (全寬) */}
+                        <div className="content-panel p-5 flex flex-col h-[380px] xl:col-span-2">
                             <div className="flex items-center gap-2 mb-3 border-b border-slate-200/50 pb-2">
                                 <Icon name="clipboard-list" className="w-5 h-5 text-teal-600" />
                                 <h3 className="font-bold text-slate-800 text-base sm:text-lg">工單 ({results.orders.length})</h3>
@@ -1316,68 +1413,56 @@
                             </div>
                         </div>
 
-                        {/* 2. 進貨資訊 - 時間線排版 */}
-                        <div className="content-panel p-5 flex flex-col h-[380px]">
+                        {/* 2. 進出貨資訊 - 下方雙排顯示 (左側，💡已取消時間線樣式，純卡片列表顯示) */}
+                        <div className="content-panel p-5 flex flex-col h-[480px]">
                             <div className="flex items-center gap-2 mb-3 border-b border-slate-200/50 pb-2">
-                                <Icon name="shopping" className="w-5 h-5 text-teal-600" />
-                                <h3 className="font-bold text-slate-800 text-base sm:text-lg">進貨資訊 ({results.purchases.length})</h3>
+                                <Icon name="calendar" className="w-5 h-5 text-teal-600" />
+                                <h3 className="font-bold text-slate-800 text-base sm:text-lg">進出貨資訊 ({timelineEvents.length})</h3>
                             </div>
-                            <div className="overflow-auto flex-1 px-2">
-                                {results.purchases.length === 0 ? (
-                                    <p className="text-sm text-slate-400 text-center py-20">無進貨資訊資料</p>
+                            <div className="overflow-auto flex-1 px-1">
+                                {timelineEvents.length === 0 ? (
+                                    <p className="text-sm text-slate-400 text-center py-20">無進出貨資訊</p>
                                 ) : (
-                                    <div className="relative pl-6 border-l border-teal-200 space-y-4 py-2 ml-4">
-                                        {results.purchases.map((p, idx) => (
-                                            <div key={idx} className="relative">
-                                                {/* 時間軸圓點日曆圖示 */}
-                                                <div className="absolute -left-[35px] top-1 w-6 h-6 rounded-full bg-teal-50 border-2 border-teal-500 flex items-center justify-center text-teal-600 shadow-sm">
-                                                    <Icon name="calendar" className="w-3 h-3" />
-                                                </div>
-                                                {/* 內容卡片 */}
-                                                <div className="bg-white/60 hover:bg-white/90 p-3 rounded-lg border border-slate-200/50 shadow-sm transition-all text-left">
-                                                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-1.5 mb-2">
-                                                        <span className="text-xs sm:text-sm font-bold text-teal-800 font-tech-mono">
-                                                            {p.date || '無進貨日期'}
+                                    <div className="space-y-3 py-1">
+                                        {timelineEvents.map((evt, idx) => {
+                                            const isRecv = evt.type === 'recv';
+                                            return (
+                                                <div key={idx} className="bg-white/60 hover:bg-white/95 p-3.5 rounded-lg border border-slate-200/50 shadow-sm transition-all text-left flex flex-col gap-2">
+                                                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-1.5">
+                                                        <div className="flex items-center gap-1.5">
+                                                            <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                                                                isRecv 
+                                                                ? 'bg-blue-100 text-blue-800 border border-blue-200' 
+                                                                : 'bg-purple-100 text-purple-800 border border-purple-200'
+                                                            }`}>
+                                                                {isRecv ? '進貨資訊' : '出貨資訊'}
+                                                            </span>
+                                                            <span className="text-xs sm:text-sm font-bold text-slate-800 font-tech-mono">
+                                                                {evt.date}
+                                                            </span>
+                                                        </div>
+                                                        {evt.status && <StatusBadge status={evt.status} className="scale-90" />}
+                                                    </div>
+                                                    <div className="text-xs sm:text-sm">
+                                                        <span className="font-semibold text-slate-700 whitespace-pre-wrap break-words block">
+                                                            {evt.rawInfo || '-'}
                                                         </span>
-                                                        {p.status && <StatusBadge status={p.status} className="scale-90" />}
-                                                    </div>
-                                                    <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs sm:text-sm">
-                                                        <div>
-                                                            <span className="text-[10px] text-slate-400 block">客戶</span>
-                                                            <span className="font-semibold text-slate-700 truncate block" title={p.customer}>{p.customer || '-'}</span>
-                                                        </div>
-                                                        <div>
-                                                            <span className="text-[10px] text-slate-400 block">料號</span>
-                                                            <span className="font-mono font-bold text-teal-700 block truncate" title={p.partNo}>{p.partNo || '-'}</span>
-                                                        </div>
-                                                        <div>
-                                                            <span className="text-[10px] text-slate-400 block">機種</span>
-                                                            <span className="text-slate-600 block truncate" title={p.model}>{p.model || '-'}</span>
-                                                        </div>
-                                                        <div>
-                                                            <span className="text-[10px] text-slate-400 block">進貨數量</span>
-                                                            <span className="font-bold text-slate-800 font-tech-mono block">{p.qty || '-'}</span>
-                                                        </div>
-                                                        <div className="col-span-2 md:col-span-1">
-                                                            <span className="text-[10px] text-slate-400 block">備註</span>
-                                                            <span className="text-slate-500 block truncate" title={p.note}>{p.note || '-'}</span>
-                                                        </div>
                                                     </div>
                                                 </div>
-                                            </div>
-                                        ))}
+                                            );
+                                        })}
                                     </div>
                                 )}
                             </div>
                         </div>
 
-                        {/* 3. 用料明細&庫存 */}
-                        <div className="content-panel p-5 flex flex-col h-[420px] xl:col-span-2">
+                        {/* 3. 用料明細&庫存 - 下方雙排顯示 (右側，庫存為負數時會動態載入並顯示"相關工單"明細) */}
+                        <div className="content-panel p-5 flex flex-col h-fit">
                             <div className="flex items-center gap-2 mb-3 border-b border-slate-200/50 pb-2">
                                 <Icon name="spreadsheet" className="w-5 h-5 text-teal-600" />
                                 <h3 className="font-bold text-slate-800 text-base sm:text-lg">用料明細&庫存 ({results.workOrders.length})</h3>
                             </div>
-                            <div className="overflow-auto flex-1 space-y-4">
+                            <div className="space-y-4">
                                 {results.workOrders.length === 0 ? (
                                     <p className="text-sm text-slate-400 text-center py-24">無用料明細&庫存</p>
                                 ) : (
@@ -1387,20 +1472,45 @@
                                                 <span className="font-bold text-teal-800 text-sm sm:text-base">{g.id}</span>
                                                 <StatusBadge status={g.mainStatus} className="scale-90" />
                                             </div>
-                                            <div className="text-xs text-slate-500 mb-2 truncate" title={`${g.customer} | ${g.mainSpec}`}>
-                                                {g.customer} <span className="mx-1 text-slate-300">|</span> {g.mainSpec}
+                                            <div className="text-xs text-slate-500 mb-2" title={`${g.customer} | ${g.mainSpec}`}>
+                                                <span className="font-bold text-slate-800">{g.customer}</span> <span className="mx-1 text-slate-300">|</span> <span>{g.mainSpec}</span>
                                             </div>
                                             <div className="space-y-1.5 text-xs">
-                                                {g.items.map((item, idx) => (
-                                                    <div key={idx} className="flex flex-col sm:flex-row justify-between bg-white/70 p-2 rounded border border-slate-100 gap-1 sm:gap-0">
-                                                        <span className="font-mono font-bold text-slate-700">{item.partNo}</span>
-                                                        <span className="text-slate-500 truncate max-w-[150px]" title={item.spec}>{item.spec}</span>
-                                                        <div className="flex gap-3 text-right">
-                                                            <span className="text-teal-600 font-semibold">需求: {item.plannedQty}</span>
-                                                            <span className="text-slate-500">庫存: {getDisplayStock(item.partNo, item.stockQty)}</span>
+                                                {g.items.map((item, idx) => {
+                                                    const stockVal = parseFloat(getDisplayStock(item.partNo, item.stockQty));
+                                                    const isNegative = !isNaN(stockVal) && stockVal < 0;
+                                                    const relatedWOs = isNegative ? getRelatedWorkOrders(item.partNo) : [];
+
+                                                    return (
+                                                        <div key={idx} className="bg-white/70 p-2 rounded border border-slate-100 flex flex-col gap-1.5">
+                                                            <div className="flex flex-col sm:flex-row justify-between gap-1 sm:gap-0">
+                                                                <span className="font-mono font-bold text-slate-700">{item.partNo}</span>
+                                                                <span className="text-slate-500 break-words max-w-full sm:max-w-[180px] md:max-w-[250px]" title={item.spec}>{item.spec}</span>
+                                                                <div className="flex gap-3 text-right whitespace-nowrap">
+                                                                    <span className="text-teal-600 font-semibold">需求: {item.plannedQty}</span>
+                                                                    <span className={isNegative ? "text-red-500 font-bold" : "text-slate-500"}>庫存: {getDisplayStock(item.partNo, item.stockQty)}</span>
+                                                                </div>
+                                                            </div>
+                                                            
+                                                            {isNegative && relatedWOs.length > 0 && (
+                                                                <div className="mt-1.5 pl-3 border-l-2 border-red-400 space-y-1 bg-red-50/30 p-1.5 rounded">
+                                                                    <div className="text-[10px] font-bold text-red-600 uppercase tracking-wider flex items-center gap-1">
+                                                                        <Icon name="alert" className="w-3 h-3 text-red-500" />
+                                                                        相關工單 ({relatedWOs.length})
+                                                                    </div>
+                                                                    <div className="max-h-[120px] overflow-y-auto space-y-1">
+                                                                        {relatedWOs.map((rwo, rIdx) => (
+                                                                            <div key={rIdx} className="flex justify-between text-[11px] text-slate-500 bg-white/70 px-2 py-0.5 rounded border border-red-100/30">
+                                                                                <span className="font-mono text-teal-700 font-semibold">{rwo.id}</span>
+                                                                                <span>用料表數量: <span className="font-bold text-slate-700">{rwo.qty}</span></span>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            )}
                                                         </div>
-                                                    </div>
-                                                ))}
+                                                    );
+                                                })}
                                             </div>
                                         </div>
                                     ))
@@ -1409,7 +1519,7 @@
                         </div>
                     </div>
 
-                    {/* 工單欄位點選後的彈出明細視窗 */}
+                    {/* 工單彈出明細視窗 */}
                     {selectedOrder && (
                         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm" onClick={() => setSelectedOrder(null)}>
                             <div className="bg-white/85 backdrop-blur-md border border-slate-200/50 w-full max-w-2xl rounded-xl overflow-hidden shadow-xl modal-animate" onClick={e => e.stopPropagation()}>
@@ -1508,7 +1618,7 @@
                     });
 
                     if (response.status === 401) {
-                        throw new Error('401 Unauthorized: 權限驗證失敗。請確認金鑰是否正確，或 Power Automate 觸發條件是否設為「任何人(Anyone)」。');
+                        throw new Error('401 Unauthorized: 權限驗證失敗。請確認金鑰是否正確，或 Power Automate 觸發條件是否設為「任何人(Anyone)設定」。');
                     }
                     
                     if (!response.ok) {
@@ -1599,7 +1709,6 @@
                     invMatchCount = Object.values(groups).filter(g => isMatch(Object.values(g), globalSearch)).length;
                 }
 
-                // 計算詳細資訊中，工單及進貨資訊與搜尋框相符的筆數總合
                 let detailedCount = 0;
                 if (s) {
                     const orderMatches = orderState.data.filter(o => isMatch(Object.values(o), s)).length;
