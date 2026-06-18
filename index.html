@@ -507,7 +507,7 @@
                             yearlyData[yr] = {
                                 usage: getVal(row, [`${yr}用量`, `${yr}年度用量`], [`${yr}用量`]),
                                 q1: getVal(row, [`${yr}第一季`, `${yr}第1季`, `${yr}1季`, `${yr}q1`], [`${yr}第一季`, `${yr}第1季`, `${yr}1季`, `${yr}q1`]),
-                                p2: getVal(row, [`${yr}第二季`, `${yr}第2季`, `${yr}2季`, `${yr}q2`], [`${yr}第二季`, `${yr}第2季`, `${yr}2季`, `${yr}q2`]),
+                                q2: getVal(row, [`${yr}第二季`, `${yr}第2季`, `${yr}2季`, `${yr}q2`], [`${yr}第二季`, `${yr}第2季`, `${yr}2季`, `${yr}q2`]), // 💡 修正 typo：將 p2 改回 q2
                                 q3: getVal(row, [`${yr}第三季`, `${yr}第3季`, `${yr}3季`, `${yr}q3`], [`${yr}第三季`, `${yr}第3季`, `${yr}3季`, `${yr}q3`]),
                                 q4: getVal(row, [`${yr}第四季`, `${yr}第4季`, `${yr}4季`, `${yr}q4`], [`${yr}第四季`, `${yr}第4季`, `${yr}4季`, `${yr}q4`]),
                                 avg: getVal(row, [`${yr}平均值`, `${yr}平均`], [`${yr}平均`])
@@ -725,7 +725,7 @@
                                                 <td className="px-4 py-4 font-bold text-slate-800 font-sans whitespace-nowrap">{yr}</td>
                                                 <td className="px-4 py-4 font-black text-teal-600 text-lg whitespace-nowrap">{d.usage || '-'}</td>
                                                 <td className="px-4 py-4 whitespace-nowrap">{d.q1 || '-'}</td>
-                                                <td className="px-4 py-4 whitespace-nowrap">{d.usage || '-'}</td>
+                                                <td className="px-4 py-4 whitespace-nowrap">{d.q2 || '-'}</td> {/* 💡 修正錯誤：原為 d.usage，現已改為 d.q2 */}
                                                 <td className="px-4 py-4 whitespace-nowrap">{d.q3 || '-'}</td>
                                                 <td className="px-4 py-4 whitespace-nowrap">{d.q4 || '-'}</td>
                                                 <td className="px-4 py-4 font-bold text-emerald-600 text-lg whitespace-nowrap">{d.avg || '-'}</td>
@@ -1768,8 +1768,6 @@
                 return "搜尋料號 / 品名...";
             };
 
-            const currentFiles = module === 'order' ? orderState.files : invState.files;
-
             return (
                 <div className="h-screen w-full flex flex-col overflow-hidden bg-transparent font-sans text-slate-800 relative">
                     <header className="content-panel rounded-none border-x-0 border-t-0 border-b border-slate-200 shrink-0 z-20 relative flex flex-col">
@@ -1803,7 +1801,7 @@
                             </div>
                             <div className="flex flex-wrap items-center gap-2 md:ml-auto shrink-0">
                                 {module === 'order' && (
-                                    <div className="flex items-center gap-2 text-base text-slate-600 bg-white/70 backdrop-blur-md p-1.5 rounded-lg border border-slate-200 shadow-sm">
+                                    <div className="flex items-center gap-2 text-base text-slate-600 bg-white/70 backdrop-blur-md p-1.5 rounded-lg border border-slate-200 shadow-sm mr-1">
                                         <Icon name="calendar" className="text-teal-500 w-5 h-5 ml-1" />
                                         <input type="date" className="bg-transparent border-none text-slate-800 font-mono text-sm sm:text-base outline-none cursor-pointer" style={{colorScheme: 'light'}} value={dates.start} onChange={e => setDates({...dates, start: e.target.value})} />
                                         <span className="text-sm font-bold text-slate-400">~</span>
@@ -1812,12 +1810,12 @@
                                     </div>
                                 )}
                                 {module === 'inventory' && (
-                                    <button onClick={() => setOnlyShortage(!onlyShortage)} className={`px-3 py-1.5 rounded-lg text-sm font-bold border transition-all whitespace-nowrap shadow-sm ${onlyShortage ? 'bg-red-50 border-red-300 text-red-600' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                                    <button onClick={() => setOnlyShortage(!onlyShortage)} className={`px-3 py-1.5 rounded-lg text-sm font-bold border transition-all whitespace-nowrap shadow-sm mr-1 ${onlyShortage ? 'bg-red-50 border-red-300 text-red-600' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
                                         <div className="flex items-center gap-1"><Icon name="alert" className="w-4 h-4" /> 只看缺料</div>
                                     </button>
                                 )}
                                 {module === 'purchaseInfo' && ( 
-                                    <button onClick={() => setOnlyAbnormal(!onlyAbnormal)} className={`px-3 py-1.5 rounded-lg text-sm font-bold border transition-all whitespace-nowrap shadow-sm ${onlyAbnormal ? 'bg-amber-50 border-amber-300 text-amber-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                                    <button onClick={() => setOnlyAbnormal(!onlyAbnormal)} className={`px-3 py-1.5 rounded-lg text-sm font-bold border transition-all whitespace-nowrap shadow-sm mr-1 ${onlyAbnormal ? 'bg-amber-50 border-amber-300 text-amber-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
                                         <div className="flex items-center gap-1.5"><Icon name="file-warning" className="w-4 h-4" /> 異常狀態</div>
                                     </button>
                                 )}
@@ -1829,28 +1827,39 @@
                                             setShowApiModal(true);
                                         }} 
                                         disabled={isSyncing}
-                                        className={`px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-bold flex items-center gap-1.5 shadow-md transition-all whitespace-nowrap ${isSyncing ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-700'}`}
+                                        className={`px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-bold flex items-center gap-1.5 shadow-md transition-all whitespace-nowrap mr-1 ${isSyncing ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-700'}`}
                                     >
                                         <Icon name={isSyncing ? 'loader' : 'cloud'} className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
                                         {isSyncing ? '同步中...' : '同步雲端'}
                                     </button>
                                 )}
 
-                                {/* 💡 恢復單一檔案上傳 */}
-                                <label className={`px-3 py-1.5 bg-slate-700 text-white rounded-lg text-sm font-bold flex items-center gap-1.5 shadow-md transition-all whitespace-nowrap ${isUploading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-slate-800'}`}>
-                                    <Icon name="upload" className="w-4 h-4 text-white" /> {isUploading ? '處理中...' : '上傳 Excel'}
+                                {/* 💡 拆分按鈕 1：庫存/用料 EXCEL 上傳 (進貨資訊、物料庫存、耗材庫存、用料明細共同使用) */}
+                                <label className={`px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold flex items-center gap-1.5 shadow-md transition-all whitespace-nowrap mr-1 ${isUploading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+                                    <Icon name="upload" className="w-4 h-4 text-white" /> {isUploading ? '處理中...' : '上傳 庫存/用料'}
                                     <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={e => { 
                                         const file = e.target.files[0];
-                                        if (!file) return;
-                                        if (module === 'order') onUploadOrder(file); else onUploadInv(file);
+                                        if (file) onUploadInv(file);
+                                        e.target.value=''; 
+                                    }} disabled={isUploading} />
+                                </label>
+
+                                {/* 💡 拆分按鈕 2：訂單 EXCEL 上傳 (訂單管理單獨使用) */}
+                                <label className={`px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold flex items-center gap-1.5 shadow-md transition-all whitespace-nowrap ${isUploading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+                                    <Icon name="upload" className="w-4 h-4 text-white" /> {isUploading ? '處理中...' : '上傳 訂單Excel'}
+                                    <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={e => { 
+                                        const file = e.target.files[0];
+                                        if (file) onUploadOrder(file);
                                         e.target.value=''; 
                                     }} disabled={isUploading} />
                                 </label>
                             </div>
                         </div>
-                        {(currentFiles.length > 0 || msg) && (
-                            <div className="px-4 py-1.5 bg-white/40 backdrop-blur-sm border-t border-slate-200/50 flex items-center gap-3 text-[10px] sm:text-xs font-mono text-slate-600 overflow-x-auto no-scrollbar">
-                                {currentFiles.length > 0 && <span className="text-teal-800 bg-teal-100/80 px-2 py-0.5 rounded border border-teal-200/50 whitespace-nowrap">來源: {currentFiles.join(', ')}</span>}
+                        {/* 💡 來源展示優化：並列顯示兩類檔案的載入狀態 */}
+                        {(invState.files.length > 0 || orderState.files.length > 0 || msg) && (
+                            <div className="px-4 py-1.5 bg-white/40 backdrop-blur-sm border-t border-slate-200/50 flex flex-wrap items-center gap-3 text-[10px] sm:text-xs font-mono text-slate-600 overflow-x-auto no-scrollbar">
+                                {invState.files.length > 0 && <span className="text-teal-800 bg-teal-100/80 px-2 py-0.5 rounded border border-teal-200/50 whitespace-nowrap">庫存/用料來源: {invState.files.join(', ')}</span>}
+                                {orderState.files.length > 0 && <span className="text-indigo-800 bg-indigo-100/80 px-2 py-0.5 rounded border border-indigo-200/50 whitespace-nowrap">訂單來源: {orderState.files.join(', ')}</span>}
                                 {msg && <span className={`font-bold px-2 py-0.5 rounded border whitespace-nowrap ${msg.type === 'success' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : (msg.type === 'info' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-red-50 text-red-700 border-red-200')}`}>{msg.text}</span>}
                             </div>
                         )}
