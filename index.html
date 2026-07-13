@@ -244,7 +244,8 @@
                 shopping: <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4H6z M3 6h18 M16 10a4 4 0 0 1-8 0" />,
                 'file-warning': <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z M12 9v4 M12 17h.01" />,
                 cloud: <path d="M17.5 19c2.5 0 4.5-2 4.5-4.5 0-2-1.5-3.5-3.5-4-.5-4-4-7-8.5-7-3.5 0-6.5 2-7.5 5-2 .5-4 2-4 4.5C1 17 3 19 5.5 19h12z" />,
-                key: <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+                key: <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />,
+                download: <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />
             };
             return (
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" className={className}>
@@ -346,7 +347,6 @@
         };
 
         const parseOrderData = (workbook, allColumns) => {
-            // 💡 資料來源擴充：新增 "待出貨"、"已出貨"
             const targetSheetNames = ["改裝、維修 訂單-未出", "改裝、維修 訂單-已出", "工程驗證", "雜項-未出", "待出貨", "已出貨"];
             const foundSheets = workbook.SheetNames.filter(name => targetSheetNames.includes(name));
             const sheetsToProcess = foundSheets.length > 0 ? foundSheets : [workbook.SheetNames[0]];
@@ -507,7 +507,7 @@
                             yearlyData[yr] = {
                                 usage: getVal(row, [`${yr}用量`, `${yr}年度用量`], [`${yr}用量`]),
                                 q1: getVal(row, [`${yr}第一季`, `${yr}第1季`, `${yr}1季`, `${yr}q1`], [`${yr}第一季`, `${yr}第1季`, `${yr}1季`, `${yr}q1`]),
-                                q2: getVal(row, [`${yr}第二季`, `${yr}第2季`, `${yr}2季`, `${yr}q2`], [`${yr}第二季`, `${yr}第2季`, `${yr}2季`, `${yr}q2`]), // 💡 修正 typo：將 p2 改回 q2
+                                q2: getVal(row, [`${yr}第二季`, `${yr}第2季`, `${yr}2季`, `${yr}q2`], [`${yr}第二季`, `${yr}第2季`, `${yr}2季`, `${yr}q2`]), 
                                 q3: getVal(row, [`${yr}第三季`, `${yr}第3季`, `${yr}3季`, `${yr}q3`], [`${yr}第三季`, `${yr}第3季`, `${yr}3季`, `${yr}q3`]),
                                 q4: getVal(row, [`${yr}第四季`, `${yr}第4季`, `${yr}4季`, `${yr}q4`], [`${yr}第四季`, `${yr}第4季`, `${yr}4季`, `${yr}q4`]),
                                 avg: getVal(row, [`${yr}平均值`, `${yr}平均`], [`${yr}平均`])
@@ -539,7 +539,6 @@
                     let targetKey = null; let qtyKey = '數量';
                     if (exactName.includes('工單')) { targetKey = 'workOrders'; qtyKey = '用料表數量'; }
                     else if (exactName.includes('已發放')) { targetKey = 'issued'; qtyKey = '領用數量'; }
-                    // 💡 資料來源擴充：新增 "待出貨"、"已出貨" 工作表對應
                     else if (exactName.includes('待出貨') || exactName === '待出貨') { targetKey = 'pendingShipment'; qtyKey = '領用數量'; }
                     else if (exactName.includes('已出貨') || exactName === '已出貨') { targetKey = 'pendingShipment'; qtyKey = '領用數量'; }
                     
@@ -613,7 +612,6 @@
                             </div>
                             <p className="text-lg text-teal-700 tracking-widest text-center font-mono font-bold">請同步雲端資料或上傳包含「進貨表」的 Excel</p>
                             
-                            {/* 💡 恢復單一檔案上傳 */}
                             <label className="mt-6 px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 cursor-pointer shadow-md transition-all whitespace-nowrap">
                                 <Icon name="upload" className="w-4 h-4 text-white" /> 選擇 Excel 檔案上傳
                                 <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={e => {
@@ -725,7 +723,7 @@
                                                 <td className="px-4 py-4 font-bold text-slate-800 font-sans whitespace-nowrap">{yr}</td>
                                                 <td className="px-4 py-4 font-black text-teal-600 text-lg whitespace-nowrap">{d.usage || '-'}</td>
                                                 <td className="px-4 py-4 whitespace-nowrap">{d.q1 || '-'}</td>
-                                                <td className="px-4 py-4 whitespace-nowrap">{d.q2 || '-'}</td> {/* 💡 修正錯誤：原為 d.usage，現已改為 d.q2 */}
+                                                <td className="px-4 py-4 whitespace-nowrap">{d.q2 || '-'}</td> 
                                                 <td className="px-4 py-4 whitespace-nowrap">{d.q3 || '-'}</td>
                                                 <td className="px-4 py-4 whitespace-nowrap">{d.q4 || '-'}</td>
                                                 <td className="px-4 py-4 font-bold text-emerald-600 text-lg whitespace-nowrap">{d.avg || '-'}</td>
@@ -792,12 +790,10 @@
                     let matchesDate = true;
                     
                     if (dates.start || dates.end) {
-                        // 取得欄位內所有的日期時間戳
                         const timestamps = parseAllDateTimestamps(i.recvDate);
                         if (timestamps.length === 0) {
                             matchesDate = false;
                         } else {
-                            // 只要欄位內有「任何一個」日期落在篩選區間內，就視為符合
                             matchesDate = timestamps.some(ts => 
                                 (!startTs || ts >= startTs) && (!endTs || ts <= endTs)
                             );
@@ -816,12 +812,10 @@
                     let matchesDate = true;
 
                     if (dates.start || dates.end) {
-                        // 取得欄位內所有的日期時間戳
                         const timestamps = parseAllDateTimestamps(i.shipDate);
                         if (timestamps.length === 0) {
                             matchesDate = false;
                         } else {
-                            // 只要欄位內有「任何一個」日期落在篩選區間內，就視為符合
                             matchesDate = timestamps.some(ts => 
                                 (!startTs || ts >= startTs) && (!endTs || ts <= endTs)
                             );
@@ -842,7 +836,6 @@
                             </div>
                             <p className="text-lg mt-4 text-teal-700 tracking-widest text-center font-mono font-bold">請手動上傳訂單 Excel 資料</p>
                             
-                            {/* 💡 恢復單一檔案上傳 */}
                             <label className="mt-6 px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 cursor-pointer shadow-md transition-all whitespace-nowrap">
                                 <Icon name="upload" className="w-4 h-4 text-white" /> 選擇訂單 Excel 上傳
                                 <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={e => {
@@ -962,7 +955,6 @@
                             </div>
                             <p className="text-base mt-3 text-teal-700 tracking-widest text-center font-mono font-bold">請同步雲端資料或上傳用料明細 Excel</p>
                             
-                            {/* 💡 恢復單一檔案上傳 */}
                             <label className="mt-6 px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 cursor-pointer shadow-md transition-all whitespace-nowrap">
                                 <Icon name="upload" className="w-4 h-4 text-white" /> 選擇用料明細 Excel 上傳
                                 <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={e => {
@@ -1087,14 +1079,85 @@
             );
         };
 
-        const StockSystem = ({ title, data, showDataPanel = true, globalSearch, safetySearch, stockSearch, onUploadInv }) => {
+        // ==========================================
+        // 庫存系統 (StockSystem)
+        // 💡 整理 table 表頭為乾淨文字，透過 app 層的匯出與篩選按鈕驅動
+        // ==========================================
+        const StockSystem = ({ title, data, showDataPanel = true, globalSearch, safetySearch, stockSearch, onUploadInv, onlyNegativeSafety, exportTrigger }) => {
             const [selected, setSelected] = useState(null);
+
+            // 💡 匯出當前頁面資訊的「EXCEL CSV 檔」
+            const exportToCSV = () => {
+                if (!filtered || filtered.length === 0) return;
+                
+                // 加上 \uFEFF BOM 確保 EXCEL 開啟中文不亂碼
+                let csvContent = "\uFEFF";
+                
+                let headers = title === '物料庫存' 
+                    ? ['料號', '品名規格', '現有實際庫存', '安全庫存差異']
+                    : ['料號', '品名規格', '現有實際庫存'];
+                    
+                csvContent += headers.join(',') + "\n";
+                
+                filtered.forEach(row => {
+                    const parsedSafety = parseFloat(row.safetyStock);
+                    const displaySafety = isNaN(parsedSafety) ? 0 : Math.round(parsedSafety);
+                    const stockVal = (title === '物料庫存' && Number(row.allUsageStock) < 0) ? 0 : row.allUsageStock;
+                    
+                    let cleanId = String(row.id || '').replace(/"/g, '""');
+                    if (cleanId.includes(',') || cleanId.includes('\n')) cleanId = `"${cleanId}"`;
+                    
+                    let cleanSpec = String(row.spec || '').replace(/"/g, '""');
+                    if (cleanSpec.includes(',') || cleanSpec.includes('\n')) cleanSpec = `"${cleanSpec}"`;
+                    
+                    let line = title === '物料庫存'
+                        ? [cleanId, cleanSpec, stockVal, displaySafety]
+                        : [cleanId, cleanSpec, stockVal];
+                        
+                    csvContent += line.join(',') + "\n";
+                });
+                
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement("a");
+                link.setAttribute("href", url);
+                link.setAttribute("download", `${title}_${new Date().toISOString().slice(0, 10)}.csv`);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            };
+
+            // 💡 當頂層傳遞 exportTrigger 變化時，觸發下載匯出
+            useEffect(() => {
+                if (exportTrigger && exportTrigger > 0 && title === '物料庫存') {
+                    exportToCSV();
+                }
+            }, [exportTrigger]);
+
             const filtered = useMemo(() => data.filter(i => {
-                const matchesGlobal = isMatch(Object.values(i), globalSearch);
+                let matchesGlobal = isMatch(Object.values(i), globalSearch);
+                
+                if (title === '物料庫存' && globalSearch.trim() !== '') {
+                    const parsedSafety = parseFloat(i.safetyStock);
+                    const displaySafety = isNaN(parsedSafety) ? 0 : Math.round(parsedSafety);
+                    if (displaySafety < 0) {
+                        matchesGlobal = true;
+                    }
+                }
+
                 let matchesSafety = true;
                 let matchesStock = true;
 
                 if (title === '物料庫存') {
+                    // 💡 安全庫存差異按鈕篩選 (若點選只顯示負數，過濾正數和零)
+                    if (onlyNegativeSafety) {
+                        const parsedSafety = parseFloat(i.safetyStock);
+                        const displaySafety = isNaN(parsedSafety) ? 0 : Math.round(parsedSafety);
+                        if (displaySafety >= 0) {
+                            return false; 
+                        }
+                    }
+
                     if (safetySearch && safetySearch.trim() !== '') {
                         const ss = safetySearch.trim();
                         const parsedSafety = parseFloat(i.safetyStock);
@@ -1125,7 +1188,7 @@
                     }
                 }
                 return matchesGlobal && matchesSafety && matchesStock;
-            }), [data, globalSearch, safetySearch, stockSearch, title]);
+            }), [data, globalSearch, safetySearch, stockSearch, title, onlyNegativeSafety]);
 
             return (
                 <div className="flex flex-col h-full p-4 sm:p-6 text-left">
@@ -1136,7 +1199,6 @@
                             </div>
                             <p className="text-base mt-3 text-teal-700 tracking-widest text-center font-mono font-bold">請同步雲端資料或上傳 Excel 庫存檔案</p>
                             
-                            {/* 💡 恢復單一檔案上傳 */}
                             <label className="mt-6 px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 cursor-pointer shadow-md transition-all whitespace-nowrap">
                                 <Icon name="upload" className="w-4 h-4 text-white" /> 選擇庫存 Excel 上傳
                                 <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={e => {
@@ -1155,8 +1217,13 @@
                                             <th className="p-3 sm:p-4 w-10 sm:w-12 text-center whitespace-nowrap">#</th>
                                             <th className="p-3 sm:p-4 text-left min-w-[120px] break-all">料號</th>
                                             <th className="p-3 sm:p-4 text-left min-w-[200px] break-words">品名</th>
-                                            <th className="p-3 sm:p-4 text-center bg-teal-50/70 text-teal-800 whitespace-nowrap border-x border-white/40">現有實際庫存</th>
-                                            {title === '物料庫存' && <th className="p-3 sm:p-4 text-center bg-orange-50/70 text-orange-800 whitespace-nowrap border-r border-white/40">安全庫存差異</th>}
+                                            
+                                            {/* 💡 恢復乾淨簡單的純文字表頭 */}
+                                            <th className="p-3 sm:p-4 text-center bg-teal-50/70 text-teal-800 border-x border-white/40 whitespace-nowrap">現有實際庫存</th>
+                                            
+                                            {title === '物料庫存' && (
+                                                <th className="p-3 sm:p-4 text-center bg-orange-50/70 text-orange-800 border-r border-white/40 whitespace-nowrap">安全庫存差異</th>
+                                            )}
                                             {showDataPanel && <th className="p-3 sm:p-4 text-center whitespace-nowrap">數據面板</th>}
                                         </tr>
                                     </thead>
@@ -1200,9 +1267,7 @@
         };
 
         // ==========================================
-        // 修改：詳細資訊整合系統元件 (DetailedInfoSystem)
-        // 💡 僅讀取工單的預計進出貨日期，不讀取「進貨表」
-        // 💡 進出貨時程內文設定為 whitespace-pre-wrap 完全依照實際文字內容換行
+        // 詳細資訊整合系統元件 (DetailedInfoSystem)
         // ==========================================
         const DetailedInfoSystem = ({ orderData, invData, globalSearch, orderColumns }) => {
             const query = (globalSearch || '').trim().toLowerCase();
@@ -1221,12 +1286,10 @@
                 return actualInventoryMap[normalizedPartNo] !== undefined ? actualInventoryMap[normalizedPartNo] : originalStock;
             };
 
-            // 💡 負庫存關聯工單查詢
             const getRelatedWorkOrders = (partNo) => {
                 if (!partNo) return [];
                 const target = String(partNo).trim().toLowerCase();
                 const list = [];
-                // 搜尋工單
                 if (invData.workOrders) {
                     invData.workOrders.forEach(wo => {
                         if (String(wo.partNo).trim().toLowerCase() === target) {
@@ -1234,7 +1297,6 @@
                         }
                     });
                 }
-                // 搜尋已發放
                 if (invData.issued) {
                     invData.issued.forEach(wo => {
                         if (String(wo.partNo).trim().toLowerCase() === target) {
@@ -1256,15 +1318,12 @@
             const results = useMemo(() => {
                 if (!query) return { orders: [], workOrders: [], inventory: [] };
 
-                // 1. 篩選相關訂單 (來源：訂單管理)
                 const matchedOrders = orderData.filter(o => isMatch(Object.values(o), query));
 
-                // 收集已匹配項目中所有的關聯工單號
                 const associatedWOIds = new Set([
                     ...matchedOrders.map(o => String(o.workOrder || '').trim().toLowerCase())
                 ].filter(Boolean));
 
-                // 2. 篩選用料明細 (包含直系搜尋或對應至關聯工單者，💡 排除「進貨表」關聯)
                 const groupedWOs = getGroupedAndFilteredData(allWOs, "", false);
                 const matchedWOs = groupedWOs.filter(g => {
                     const isDirect = isMatch([g.id, g.customer, g.mainSpec, g.recvDate, g.shipDate], query);
@@ -1272,14 +1331,12 @@
                     return isDirect || isRelational;
                 });
 
-                // 收集相關用料明細與進出貨中的所有關聯料號
                 const relevantPartNos = new Set([
                     ...matchedOrders.map(o => String(o.bfPart || '').trim().toLowerCase()),
                     ...matchedOrders.map(o => String(o.custPart || '').trim().toLowerCase()),
                     ...matchedWOs.flatMap(g => g.items.map(i => String(i.partNo || '').trim().toLowerCase()))
                 ].filter(Boolean));
 
-                // 3. 篩選物料庫存
                 const matchedInventory = (invData.materialInventory || []).filter(item => {
                     const isDirect = isMatch([item.id, item.spec], query);
                     const isRelational = item.id && relevantPartNos.has(String(item.id).trim().toLowerCase());
@@ -1335,7 +1392,6 @@
             return (
                 <div className="h-full overflow-y-auto pb-12 pr-2">
                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                        {/* 1. 工單 - 單獨在上方一排顯示 (全寬) */}
                         <div className="content-panel p-5 flex flex-col h-[380px] xl:col-span-2">
                             <div className="flex items-center gap-2 mb-3 border-b border-slate-200/50 pb-2">
                                 <Icon name="clipboard-list" className="w-5 h-5 text-teal-600" />
@@ -1378,9 +1434,7 @@
                             </div>
                         </div>
 
-                        {/* 💡 2. 進貨與出貨資訊並排顯示 (左側"進貨資訊"右側"出貨資訊" - 僅顯示預計進出貨日期，其餘資訊皆隱藏，並支援完全換行) */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 xl:col-span-2">
-                            {/* 左側：進貨資訊 (💡 來源已完全移除「進貨表」，僅透過用料工單顯示) */}
                             <div className="content-panel p-5 flex flex-col h-[480px]">
                                 <div className="flex items-center gap-2 mb-3 border-b border-slate-200/50 pb-2">
                                     <Icon name="calendar" className="w-5 h-5 text-blue-600" />
@@ -1389,7 +1443,6 @@
                                     </h3>
                                 </div>
                                 <div className="overflow-auto flex-1 px-1 space-y-3">
-                                    {/* (A) 用料工單的預計進貨日 (💡 極簡化與垂直堆疊樣式：完全依照資訊內容換行) */}
                                     {results.workOrders.filter(g => g.recvDate).map((g, idx) => (
                                         <div key={`wo-recv-${idx}`} className="bg-blue-50/30 hover:bg-white/95 p-3.5 rounded-lg border border-blue-100 shadow-sm transition-all text-left">
                                             <div className="text-xs sm:text-sm flex flex-col gap-1.5">
@@ -1412,7 +1465,6 @@
                                 </div>
                             </div>
 
-                            {/* 右側：出貨資訊 (💡 極簡化與垂直堆疊樣式：完全依照資訊內容換行) */}
                             <div className="content-panel p-5 flex flex-col h-[480px]">
                                 <div className="flex items-center gap-2 mb-3 border-b border-slate-200/50 pb-2">
                                     <Icon name="truck" className="w-5 h-5 text-purple-600" />
@@ -1421,7 +1473,6 @@
                                     </h3>
                                 </div>
                                 <div className="overflow-auto flex-1 px-1 space-y-3">
-                                    {/* (A) 用料工單的預計出貨日 (💡 極簡化與垂直堆疊樣式：完全依照資訊內容換行) */}
                                     {results.workOrders.filter(g => g.shipDate).map((g, idx) => (
                                         <div key={`wo-ship-${idx}`} className="bg-purple-50/30 hover:bg-white/95 p-3.5 rounded-lg border border-purple-100 shadow-sm transition-all text-left">
                                             <div className="text-xs sm:text-sm flex flex-col gap-1.5">
@@ -1445,7 +1496,6 @@
                             </div>
                         </div>
 
-                        {/* 3. 用料明細&庫存 - 在下方單獨一整排大區塊顯示（明細內字體已全面放大） */}
                         <div className="content-panel p-5 flex flex-col h-fit xl:col-span-2">
                             <div className="flex items-center gap-2 mb-3 border-b border-slate-200/50 pb-2">
                                 <Icon name="spreadsheet" className="w-5 h-5 text-teal-600" />
@@ -1464,7 +1514,6 @@
                                             <div className="text-sm text-slate-600 mb-3" title={`${g.customer} | ${g.mainSpec}`}>
                                                 <span className="font-bold text-slate-800">{g.customer}</span> <span className="mx-2 text-slate-300">|</span> <span>{g.mainSpec}</span>
                                             </div>
-                                            {/* 💡 明細內容字體已放大，排版更寬敞 */}
                                             <div className="space-y-2.5 text-sm sm:text-base">
                                                 {g.items.map((item, idx) => {
                                                     const stockVal = parseFloat(getDisplayStock(item.partNo, item.stockQty));
@@ -1511,7 +1560,6 @@
                         </div>
                     </div>
 
-                    {/* 工單彈出明細視窗 */}
                     {selectedOrder && (
                         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm" onClick={() => setSelectedOrder(null)}>
                             <div className="bg-white/85 backdrop-blur-md border border-slate-200/50 w-full max-w-2xl rounded-xl overflow-hidden shadow-xl modal-animate" onClick={e => e.stopPropagation()}>
@@ -1578,6 +1626,12 @@
             const [dates, setDates] = useState({ start: '', end: '' });
             const [onlyShortage, setOnlyShortage] = useState(false);
             const [onlyAbnormal, setOnlyAbnormal] = useState(false); 
+            
+            // 💡 安全庫存差異 只看負數模式狀態 (App 全域狀態控制)
+            const [onlyNegativeSafety, setOnlyNegativeSafety] = useState(false);
+            // 💡 匯出 CSV 檔觸發訊號
+            const [exportTrigger, setExportTrigger] = useState(0);
+
             const [orderState, setOrderState] = useState({ data: [], files: [] });
             const [invState, setInvState] = useState({ 
                 data: { purchaseInfo: [], workOrders: [], issued: [], pendingShipment: [], materialInventory: [], consumableInventory: [] }, 
@@ -1594,7 +1648,7 @@
                 setMsg({ type: 'info', text: '正在發送金鑰進行驗證...' });
                 
                 try {
-                    const API_URL = "https://defaultc88f0a0ed1474693bc04daf56552e7.cf.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/10/workflows/cfa0cd8f237d4fafb6a8b9d85b69207a/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=kS5RzwKaQyXw1OVD3h0-26hvoJoDDADObnmlux5U2m8";
+                    const API_URL = "https://defaultc88f0a0ed1474693bc04daf56552e7.cf.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/cfa0cd8f237d4fafb6a8b9d85b69207a/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=kS5RzwKaQyXw1OVD3h0-26hvoJoDDADObnmlux5U2m8";
 
                     const reqHeaders = {
                         'x-api-key': customApiKey.trim()
@@ -1620,7 +1674,6 @@
                     const json = await response.json();
                     const processedData = processJsonToInvState(json);
                     
-                    // 💡 雲端同步也改為智慧累加合併，不覆蓋既有資訊
                     setInvState(prev => {
                         const nextPurchases = [...(prev.data.purchaseInfo || [])];
                         processedData.purchaseInfo.forEach(p => {
@@ -1655,12 +1708,29 @@
                 const countMatches = (dataArray, applyAdvancedFilters = false, key = '') => {
                     if (!dataArray) return 0;
                     return dataArray.filter(i => {
-                        const matchesGlobal = isMatch(Object.values(i), globalSearch);
+                        let matchesGlobal = isMatch(Object.values(i), globalSearch);
                         let matchesSafety = true; let matchesStock = true;
                         let matchesPurchaseAbnormal = true;
 
                         if (key === 'purchaseInfo' && onlyAbnormal) {
                             matchesPurchaseAbnormal = i.status && String(i.status).trim() !== '';
+                        }
+
+                        if (key === 'materialInventory' && globalSearch.trim() !== '') {
+                            const parsedSafety = parseFloat(i.safetyStock);
+                            const displaySafety = isNaN(parsedSafety) ? 0 : Math.round(parsedSafety);
+                            if (displaySafety < 0) {
+                                matchesGlobal = true;
+                            }
+                        }
+
+                        // 💡 Tab 計數器與當前安全庫存只顯示負數狀態連動
+                        if (key === 'materialInventory' && onlyNegativeSafety) {
+                            const parsedSafety = parseFloat(i.safetyStock);
+                            const displaySafety = isNaN(parsedSafety) ? 0 : Math.round(parsedSafety);
+                            if (displaySafety >= 0) {
+                                return false; 
+                            }
                         }
 
                         if (applyAdvancedFilters) {
@@ -1712,7 +1782,6 @@
                 let detailedCount = 0;
                 if (s) {
                     const orderMatches = orderState.data.filter(o => isMatch(Object.values(o), s)).length;
-                    // 💡 詳細資訊不累計進貨表搜尋計數
                     detailedCount = orderMatches;
                 }
 
@@ -1720,13 +1789,12 @@
                     purchaseInfo: countMatches(invState.data.purchaseInfo, false, 'purchaseInfo'),
                     order: countMatches(orderState.data, false), 
                     inventory: invMatchCount, 
-                    materialInventory: countMatches(invState.data.materialInventory, true), 
-                    consumableInventory: countMatches(invState.data.consumableInventory, false),
+                    materialInventory: countMatches(invState.data.materialInventory, true, 'materialInventory'), 
+                    consumableInventory: countMatches(invState.data.consumableInventory, false, 'consumableInventory'),
                     detailedInfo: detailedCount
                 };
-            }, [orderState.data, invState.data, globalSearch, safetySearch, stockSearch, onlyAbnormal]);
+            }, [orderState.data, invState.data, globalSearch, safetySearch, stockSearch, onlyAbnormal, onlyNegativeSafety]);
 
-            // 💡 恢復單一檔案上傳與覆蓋
             const onUploadOrder = async (file) => {
                 if (!file) return;
                 setIsUploading(true); setMsg({ type: 'info', text: '正在載入並解析訂單檔案...' });
@@ -1743,7 +1811,6 @@
                 finally { setIsUploading(false); setTimeout(() => setMsg(null), 5000); }
             };
 
-            // 💡 恢復單一檔案上傳與覆蓋
             const onUploadInv = async (file) => {
                 if (!file) return;
                 setIsUploading(true); setMsg({ type: 'info', text: '正在載入並解析用料庫存檔案...' });
@@ -1786,16 +1853,38 @@
                                     <input type="text" placeholder={getSearchPlaceholder()} className="w-full bg-white/70 backdrop-blur-md border border-slate-200 rounded-lg py-2 pl-4 pr-10 text-base focus:ring-2 focus:ring-teal-500 outline-none shadow-sm" value={globalSearch} onChange={e => setGlobalSearch(e.target.value)} />
                                     {globalSearch && <button className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-teal-500" onClick={() => setGlobalSearch('')}><Icon name="x" className="w-5 h-5" /></button>}
                                 </div>
+                                
+                                {/* 💡 Task 1 & Task 2：物料庫存下的群組自訂動作按鈕 */}
                                 {module === 'materialInventory' && (
                                     <>
-                                        <div className="relative w-40 sm:w-44 shrink-0">
-                                            <input type="text" placeholder="安全庫存差異(如 >10)" className="w-full bg-orange-50/80 backdrop-blur-md border border-orange-200 rounded-lg py-2 pl-3 pr-8 text-base outline-none font-tech-mono" value={safetySearch} onChange={e => setSafetySearch(e.target.value)} />
-                                            {safetySearch && <button className="absolute right-2 top-1/2 -translate-y-1/2 text-orange-400" onClick={() => setSafetySearch('')}><Icon name="x" className="w-4 h-4" /></button>}
-                                        </div>
-                                        <div className="relative w-40 sm:w-44 shrink-0">
-                                            <input type="text" placeholder="現有實際庫存(如 <5)" className="w-full bg-blue-50/80 backdrop-blur-md border border-blue-200 rounded-lg py-2 pl-3 pr-8 text-base outline-none font-tech-mono" value={stockSearch} onChange={e => setStockSearch(e.target.value)} />
-                                            {stockSearch && <button className="absolute right-2 top-1/2 -translate-y-1/2 text-blue-400" onClick={() => setStockSearch('')}><Icon name="x" className="w-4 h-4" /></button>}
-                                        </div>
+                                        {/* 安全庫存差異 (只看負數切換按鈕) */}
+                                        <button
+                                            onClick={() => setOnlyNegativeSafety(!onlyNegativeSafety)}
+                                            className={`px-3.5 py-2 rounded-lg text-sm font-bold border transition-all whitespace-nowrap shadow-sm shrink-0 flex items-center gap-1.5 ${
+                                                onlyNegativeSafety
+                                                ? 'bg-red-500 border-red-600 text-white font-extrabold shadow-inner'
+                                                : 'bg-orange-50 border-orange-200 text-orange-800 hover:bg-orange-100'
+                                            }`}
+                                            title="點擊切換：只顯示安全庫存不足 (負數值) 的物料"
+                                        >
+                                            <Icon name="alert" className={`w-4 h-4 ${onlyNegativeSafety ? 'text-white animate-pulse' : 'text-orange-500'}`} />
+                                            <span>安全庫存差異</span>
+                                            {onlyNegativeSafety && (
+                                                <span className="bg-white text-red-600 text-[10px] px-1.5 py-0.5 rounded font-black border border-red-100">
+                                                    已過濾負數
+                                                </span>
+                                            )}
+                                        </button>
+
+                                        {/* 匯出CSV 按鈕 */}
+                                        <button
+                                            onClick={() => setExportTrigger(prev => prev + 1)}
+                                            className="px-3.5 py-2 rounded-lg text-sm font-bold border border-teal-600 bg-teal-600 hover:bg-teal-700 text-white active:scale-95 transition-all whitespace-nowrap shadow-sm shrink-0 flex items-center gap-1.5"
+                                            title="匯出目前篩選後的資料為 EXCEL CSV"
+                                        >
+                                            <Icon name="download" className="w-4 h-4 text-white" />
+                                            <span>匯出CSV</span>
+                                        </button>
                                     </>
                                 )}
                             </div>
@@ -1834,7 +1923,6 @@
                                     </button>
                                 )}
 
-                                {/* 💡 拆分按鈕 1：庫存/用料 EXCEL 上傳 (進貨資訊、物料庫存、耗材庫存、用料明細共同使用) */}
                                 <label className={`px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold flex items-center gap-1.5 shadow-md transition-all whitespace-nowrap mr-1 ${isUploading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
                                     <Icon name="upload" className="w-4 h-4 text-white" /> {isUploading ? '處理中...' : '上傳 庫存/用料'}
                                     <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={e => { 
@@ -1844,7 +1932,6 @@
                                     }} disabled={isUploading} />
                                 </label>
 
-                                {/* 💡 拆分按鈕 2：訂單 EXCEL 上傳 (訂單管理單獨使用) */}
                                 <label className={`px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold flex items-center gap-1.5 shadow-md transition-all whitespace-nowrap ${isUploading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
                                     <Icon name="upload" className="w-4 h-4 text-white" /> {isUploading ? '處理中...' : '上傳 訂單Excel'}
                                     <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={e => { 
@@ -1855,7 +1942,6 @@
                                 </label>
                             </div>
                         </div>
-                        {/* 💡 來源展示優化：並列顯示兩類檔案的載入狀態 */}
                         {(invState.files.length > 0 || orderState.files.length > 0 || msg) && (
                             <div className="px-4 py-1.5 bg-white/40 backdrop-blur-sm border-t border-slate-200/50 flex flex-wrap items-center gap-3 text-[10px] sm:text-xs font-mono text-slate-600 overflow-x-auto no-scrollbar">
                                 {invState.files.length > 0 && <span className="text-teal-800 bg-teal-100/80 px-2 py-0.5 rounded border border-teal-200/50 whitespace-nowrap">庫存/用料來源: {invState.files.join(', ')}</span>}
@@ -1875,17 +1961,16 @@
                             <InventorySystem data={invState.data} globalSearch={globalSearch} onlyShortage={onlyShortage} onUploadInv={onUploadInv} />
                         </div>
                         <div className={`absolute inset-4 md:inset-6 transition-opacity duration-300 ${module === 'materialInventory' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
-                            <StockSystem title="物料庫存" data={invState.data.materialInventory || []} showDataPanel={true} globalSearch={globalSearch} safetySearch={safetySearch} stockSearch={stockSearch} onUploadInv={onUploadInv} />
+                            <StockSystem title="物料庫存" data={invState.data.materialInventory || []} showDataPanel={true} globalSearch={globalSearch} safetySearch={safetySearch} stockSearch={stockSearch} onUploadInv={onUploadInv} onlyNegativeSafety={onlyNegativeSafety} exportTrigger={exportTrigger} />
                         </div>
                         <div className={`absolute inset-4 md:inset-6 transition-opacity duration-300 ${module === 'consumableInventory' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
-                            <StockSystem title="耗材庫存" data={invState.data.consumableInventory || []} showDataPanel={false} globalSearch={globalSearch} safetySearch={safetySearch} onUploadInv={onUploadInv} />
+                            <StockSystem title="耗材庫存" data={invState.data.consumableInventory || []} showDataPanel={false} globalSearch={globalSearch} safetySearch={safetySearch} onUploadInv={onUploadInv} onlyNegativeSafety={false} exportTrigger={0} />
                         </div>
                         <div className={`absolute inset-4 md:inset-6 transition-opacity duration-300 ${module === 'detailedInfo' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
                             <DetailedInfoSystem orderData={orderState.data} invData={invState.data} globalSearch={globalSearch} orderColumns={allOrderColumns} />
                         </div>
                     </main>
 
-                    {/* API Key Modal - 保持明文輸入，不自動紀錄 */}
                     {showApiModal && (
                         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowApiModal(false)}>
                             <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl modal-animate overflow-hidden border border-slate-200" onClick={e => e.stopPropagation()}>
