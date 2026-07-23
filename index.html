@@ -172,6 +172,8 @@
             }
 
             return itemValues.some(v => {
+                if (v === null || v === undefined) return false;
+                if (typeof v === 'object') return false;
                 const strV = String(v).toLowerCase();
                 return terms.some(t => strV.includes(t));
             });
@@ -1136,15 +1138,6 @@
 
             const filtered = useMemo(() => data.filter(i => {
                 let matchesGlobal = isMatch(Object.values(i), globalSearch);
-                
-                if (title === '物料庫存' && globalSearch.trim() !== '') {
-                    const parsedSafety = parseFloat(i.safetyStock);
-                    const displaySafety = isNaN(parsedSafety) ? 0 : Math.round(parsedSafety);
-                    if (displaySafety < 0) {
-                        matchesGlobal = true;
-                    }
-                }
-
                 let matchesSafety = true;
                 let matchesStock = true;
 
@@ -1714,14 +1707,6 @@
 
                         if (key === 'purchaseInfo' && onlyAbnormal) {
                             matchesPurchaseAbnormal = i.status && String(i.status).trim() !== '';
-                        }
-
-                        if (key === 'materialInventory' && globalSearch.trim() !== '') {
-                            const parsedSafety = parseFloat(i.safetyStock);
-                            const displaySafety = isNaN(parsedSafety) ? 0 : Math.round(parsedSafety);
-                            if (displaySafety < 0) {
-                                matchesGlobal = true;
-                            }
                         }
 
                         // 💡 Tab 計數器與當前安全庫存只顯示負數狀態連動
