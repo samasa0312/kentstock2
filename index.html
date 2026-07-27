@@ -1460,23 +1460,26 @@
                     const rawSt2 = (item.status2 || '').trim();
                     const q = parseFloat(item.qty) || 0;
 
-                    if (!customerMap[cust]) customerMap[cust] = { count: 0, qty: 0 };
-                    customerMap[cust].count += 1;
-                    customerMap[cust].qty += q;
-
-                    // 排除「未分類」與空白之狀態2筆數
+                    // 僅針對有單據異常（狀態2存在且排除「未分類」與空白）進行客戶與狀態2累計
                     if (rawSt2 && rawSt2 !== '未分類') {
+                        // 1. 累計含有單據異常的客戶次數與數量
+                        if (!customerMap[cust]) customerMap[cust] = { count: 0, qty: 0 };
+                        customerMap[cust].count += 1;
+                        customerMap[cust].qty += q;
+
+                        // 2. 累計狀態2異常類別筆數與數量
                         if (!status2Map[rawSt2]) status2Map[rawSt2] = { count: 0, qty: 0 };
                         status2Map[rawSt2].count += 1;
                         status2Map[rawSt2].qty += q;
                     }
                 });
 
+                // 僅保留含有單據異常筆數的客戶
                 const customerList = Object.keys(customerMap).map(k => ({
                     name: k,
                     count: customerMap[k].count,
                     qty: customerMap[k].qty
-                })).sort((a, b) => b.count - a.count);
+                })).filter(c => c.count > 0).sort((a, b) => b.count - a.count);
 
                 const status2List = Object.keys(status2Map).map(k => ({
                     name: k,
