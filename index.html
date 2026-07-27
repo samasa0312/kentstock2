@@ -12,14 +12,15 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- 載入 Excel 處理函式庫 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;700;800&display=swap');
         
         body { 
             font-family: 'Inter', 'Noto Sans TC', sans-serif; 
             background-color: #f0fdfa;
-            /* 背景圖設定 */
-            background-image: url('./123.png');
+            /* 背景圖設定 (帶有質感漸層與無圖退路) */
+            background-image: url('./123.png'), linear-gradient(135deg, #e0f2fe 0%, #f0fdfa 50%, #ecfdf5 100%);
             background-size: cover;
             background-position: center;
             background-attachment: fixed;
@@ -45,10 +46,10 @@
         
         /* 內容面板微透白效果 */
         .content-panel {
-            background: rgba(255, 255, 255, 0.65); 
+            background: rgba(255, 255, 255, 0.75); 
             backdrop-filter: blur(12px);
             -webkit-backdrop-filter: blur(12px);
-            border: 1px solid rgba(226, 232, 240, 0.6);
+            border: 1px solid rgba(226, 232, 240, 0.8);
             box-shadow: 0 4px 15px rgba(15, 23, 42, 0.04);
             border-radius: 0.75rem;
         }
@@ -274,7 +275,6 @@
         // ==========================================
         // 3. 解析器邏輯
         // ==========================================
-
         const processJsonToInvState = (jsonArray) => {
             const result = { purchaseInfo: [], workOrders: [], issued: [], pendingShipment: [], materialInventory: [], consumableInventory: [] };
             
@@ -395,7 +395,7 @@
                             const cellIdx = colMap[config.id];
                             let val = (cellIdx !== undefined && cellIdx !== -1) ? row[cellIdx] : '';
                             val = String(val === null || val === undefined ? '' : val).trim();
-                            if (config.id === 'recvDate' || config.id === 'shipDate') val = processDateValue(val);
+                            if (config.id === 'recvDate' || config.id === 'shipDate' || config.id === 'custDeliveryDate') val = processDateValue(val);
                             item[config.id] = val;
                         });
                         return item;
@@ -827,7 +827,56 @@
                 }).sort((a, b) => (parseDateTimestamp(a.shipDate) || 9999999999999) - (parseDateTimestamp(b.shipDate) || 9999999999999));
             }, [data, globalSearch, dates]);
 
-            const displayData = activeTab === 'recv' ? filteredRecv : filteredShip;
+            // 💡 僅過濾來源為「改裝、維修 訂單-未出」與「改裝、維修 訂單-已出」的客戶交期資料，並依交期排序
+            const filteredCustDelivery = useMemo(() => {
+                const startTs = parseDateTimestamp(dates.start);
+                const endTs = parseDateTimestamp(dates.end);
+
+                return data.filter(i => {
+                    const fromTargetSheet = i.fileSource === "改裝、維修 訂單-未出" || i.fileSource === "改裝、維修 訂單-已出";
+                    if (!fromTargetSheet) return false;
+
+                    const matchesSearch = isMatch(Object.values(i), globalSearch);
+                    let matchesDate = true;
+
+                    if (dates.start || dates.end) {
+                        const timestamps = parseAllDateTimestamps(i.custDeliveryDate);
+                        if (timestamps.length === 0) {
+                            matchesDate = false;
+                        } else {
+                            matchesDate = timestamps.some(ts => 
+                                (!startTs || ts >= startTs) && (!endTs || ts <= endTs)
+                            );
+                        }
+                    }
+                    return matchesSearch && matchesDate;
+                }).sort((a, b) => (parseDateTimestamp(a.custDeliveryDate) || 9999999999999) - (parseDateTimestamp(b.custDeliveryDate) || 9999999999999));
+            }, [data, globalSearch, dates]);
+
+            const displayData = useMemo(() => {
+                if (activeTab === 'recv') return filteredRecv;
+                if (activeTab === 'ship') return filteredShip;
+                if (activeTab === 'custDelivery') return filteredCustDelivery;
+                return [];
+            }, [activeTab, filteredRecv, filteredShip, filteredCustDelivery]);
+
+            // 💡 動態調整欄位順序：將目前頁籤對應的日期欄位置於最前方 (第一欄)
+            const activeColumns = useMemo(() => {
+                const excludeIds = ['recvDate', 'shipDate', 'custDeliveryDate', 'notes', 'remarks', 'fileSource'];
+                const otherCols = columns.filter(c => !excludeIds.includes(c.id));
+
+                if (activeTab === 'recv') {
+                    const recvCol = columns.find(c => c.id === 'recvDate');
+                    return [recvCol, ...otherCols].filter(Boolean);
+                } else if (activeTab === 'ship') {
+                    const shipCol = columns.find(c => c.id === 'shipDate');
+                    return [shipCol, ...otherCols].filter(Boolean);
+                } else if (activeTab === 'custDelivery') {
+                    const deliveryCol = columns.find(c => c.id === 'custDeliveryDate');
+                    return [deliveryCol, ...otherCols].filter(Boolean);
+                }
+                return otherCols;
+            }, [columns, activeTab]);
 
             return (
                 <div className="flex flex-col h-full p-4 sm:p-6 text-left">
@@ -856,6 +905,9 @@
                                 <button onClick={() => setActiveTab('ship')} className={`px-6 py-3 sm:px-8 sm:py-4 rounded-t-xl text-base sm:text-lg font-bold border-t border-x transition-all ${activeTab === 'ship' ? 'bg-white text-teal-700 border-slate-200 shadow-sm z-10' : 'bg-slate-100/80 text-slate-500 border-transparent hover:bg-slate-50 hover:text-teal-600'}`}>
                                     預計出貨 <span className="font-tech-mono ml-1">[{filteredShip.length}]</span>
                                 </button>
+                                <button onClick={() => setActiveTab('custDelivery')} className={`px-6 py-3 sm:px-8 sm:py-4 rounded-t-xl text-base sm:text-lg font-bold border-t border-x transition-all ${activeTab === 'custDelivery' ? 'bg-white text-teal-700 border-slate-200 shadow-sm z-10' : 'bg-slate-100/80 text-slate-500 border-transparent hover:bg-slate-50 hover:text-teal-600'}`}>
+                                    客戶交期 <span className="font-tech-mono ml-1">[{filteredCustDelivery.length}]</span>
+                                </button>
                             </div>
 
                             <div className="content-panel rounded-tl-none flex-1 overflow-hidden flex flex-col">
@@ -864,7 +916,7 @@
                                         <thead className="bg-white/60 sticky top-0 z-10 text-xs sm:text-sm font-bold text-teal-800 uppercase tracking-widest border-b border-white/50">
                                             <tr>
                                                 <th className="px-3 py-3 w-12 text-center whitespace-nowrap">#</th>
-                                                {columns.filter(c => activeTab === 'recv' ? c.id !== 'shipDate' : c.id !== 'recvDate').filter(c => !['notes', 'remarks'].includes(c.id)).map(col => (
+                                                {activeColumns.map(col => (
                                                     <th key={col.id} className={`px-3 py-3 min-w-[90px] break-words ${col.id.includes('Date') ? 'text-teal-600' : ''}`}>{col.label}</th>
                                                 ))}
                                             </tr>
@@ -873,7 +925,7 @@
                                             {displayData.map((row, idx) => (
                                                 <tr key={idx} className="hover:bg-white/60 transition-colors">
                                                     <td className="px-3 py-2 text-center text-slate-400 font-tech-mono whitespace-nowrap align-top">{idx + 1}</td>
-                                                    {columns.filter(c => activeTab === 'recv' ? c.id !== 'shipDate' : c.id !== 'recvDate').filter(c => !['notes', 'remarks'].includes(c.id)).map(col => (
+                                                    {activeColumns.map(col => (
                                                         <td key={col.id} className={`px-3 py-2 min-w-[90px] max-w-[250px] break-words whitespace-pre-wrap align-top ${col.id === 'workOrder' ? 'text-teal-700 font-bold text-base' : ''}`}>
                                                             {col.id === 'workOrder' ? (
                                                                 <button onClick={() => setSelected(row)} className="hover:underline hover:text-teal-500 text-left break-all">{row[col.id]}</button>
@@ -1348,6 +1400,7 @@
                 return orderColumns.filter(col => 
                     col.id !== 'recvDate' && 
                     col.id !== 'shipDate' && 
+                    col.id !== 'custDeliveryDate' &&
                     col.id !== 'fileSource' &&
                     col.id !== 'notes' &&
                     col.id !== 'remarks'
@@ -1590,6 +1643,7 @@
         // ==========================================
         function App() {
             const allOrderColumns = [
+                { id: 'custDeliveryDate', label: '客戶交期', keys: ['客戶交期', '交期', '客戶交貨日期', '客戶需求日', '客戶交貨日'] },
                 { id: 'shipDate', label: '預計出貨日期', keys: ['預計出貨日期', '預計出貨日', '實際出貨日期', '出貨日期', '實際出貨日'] },
                 { id: 'recvDate', label: '預計進貨日', keys: ['預計進貨日', '預計進貨日期', '收貨日期', '收貨日期(到貨日)', '(到貨日)', '到貨日'] },
                 { id: 'client', label: '客戶', keys: ['客戶'] },
@@ -1935,6 +1989,8 @@
                             </div>
                         )}
                     </header>
+
+                    {}
                     <main className="flex-1 relative p-4 md:p-6 overflow-hidden">
                         <div className={`absolute inset-4 md:inset-6 transition-opacity duration-300 ${module === 'purchaseInfo' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
                             <PurchaseSystem data={invState.data.purchaseInfo} globalSearch={globalSearch} onlyAbnormal={onlyAbnormal} onUploadInv={onUploadInv} />
@@ -1956,6 +2012,7 @@
                         </div>
                     </main>
 
+                    {}
                     {showApiModal && (
                         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowApiModal(false)}>
                             <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl modal-animate overflow-hidden border border-slate-200" onClick={e => e.stopPropagation()}>
@@ -1969,7 +2026,7 @@
                                 </div>
                                 <div className="p-6 text-left">
                                     <p className="text-sm text-slate-600 mb-4 leading-relaxed">
-                                        請輸入您的自訂 API 金鑰進行驗裝。
+                                        請輸入您的自訂 API 金鑰進行驗證。
                                         <br/>
                                         <span className="text-red-500 text-xs font-bold font-sans">注意：金鑰輸入錯誤將導致 401 錯誤。</span>
                                     </p>
@@ -2008,7 +2065,9 @@
                 </div>
             );
         }
-        const root = ReactDOM.createRoot(document.getElementById('root')); root.render(<App />);
+
+        const root = ReactDOM.createRoot(document.getElementById('root')); 
+        root.render(<App />);
     </script>
 </body>
 </html>
