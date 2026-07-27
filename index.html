@@ -248,7 +248,8 @@
                 'file-warning': <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z M12 9v4 M12 17h.01" />,
                 cloud: <path d="M17.5 19c2.5 0 4.5-2 4.5-4.5 0-2-1.5-3.5-3.5-4-.5-4-4-7-8.5-7-3.5 0-6.5 2-7.5 5-2 .5-4 2-4 4.5C1 17 3 19 5.5 19h12z" />,
                 key: <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />,
-                download: <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />
+                download: <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />,
+                chart: <path d="M18 20V10M12 20V4M6 20v-6" />
             };
             return (
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" className={className}>
@@ -293,6 +294,7 @@
                         model: getVal(row, ['機種']),
                         qty: getVal(row, ['進貨數量', '數量']), 
                         status: getVal(row, ['狀態']),
+                        status2: getVal(row, ['狀態2', '次狀態', '進貨狀態2']),
                         note: getVal(row, ['備註'])
                     });
                 }
@@ -497,6 +499,7 @@
                         model: getVal(row, ['機種']),
                         qty: getVal(row, ['進貨數量', '數量']), 
                         status: getVal(row, ['狀態']), 
+                        status2: getVal(row, ['狀態2', '次狀態', '進貨狀態2']),
                         note: getVal(row, ['備註'])
                     })).filter(i => i.date || i.customer || i.workOrder);
                     result.purchaseInfo = [...result.purchaseInfo, ...parsed];
@@ -602,7 +605,8 @@
                 { id: 'model', label: '機種' },
                 { id: 'qty', label: '進貨數量' },
                 { id: 'note', label: '備註' },
-                { id: 'status', label: '狀態' } 
+                { id: 'status', label: '狀態' },
+                { id: 'status2', label: '狀態2' }
             ];
 
             return (
@@ -1133,119 +1137,113 @@
             );
         };
 
-        // ==========================================
-        // 庫存系統 (StockSystem)
-        // 💡 整理 table 表頭為乾淨文字，透過 app 層的匯出與篩選按鈕驅動
-        // ==========================================
-        const StockSystem = ({ title, data, showDataPanel = true, globalSearch, safetySearch, stockSearch, onUploadInv, onlyNegativeSafety, exportTrigger }) => {
-            const [selected, setSelected] = useState(null);
+        const StockSystem = ({ title, data, showDataPanel, globalSearch, safetySearch, stockSearch, onUploadInv, onlyNegativeSafety, exportTrigger }) => {
+            const [selectedItem, setSelectedItem] = useState(null);
+            const [localSafetyFilter, setLocalSafetyFilter] = useState('');
+            const [localStockFilter, setLocalStockFilter] = useState('');
 
-            // 💡 匯出當前頁面資訊的「EXCEL CSV 檔」
-            const exportToCSV = () => {
-                if (!filtered || filtered.length === 0) return;
-                
-                // 加上 \uFEFF BOM 確保 EXCEL 開啟中文不亂碼
-                let csvContent = "\uFEFF";
-                
-                let headers = title === '物料庫存' 
-                    ? ['料號', '品名規格', '現有實際庫存', '安全庫存差異']
-                    : ['料號', '品名規格', '現有實際庫存'];
-                    
-                csvContent += headers.join(',') + "\n";
-                
-                filtered.forEach(row => {
-                    const parsedSafety = parseFloat(row.safetyStock);
+            const effectiveSafetySearch = safetySearch || localSafetyFilter;
+            const effectiveStockSearch = stockSearch || localStockFilter;
+
+            const filteredData = useMemo(() => {
+                if (!data || data.length === 0) return [];
+                return data.filter(item => {
+                    const matchesGlobal = isMatch([item.id, item.spec, item.allUsageStock, item.safetyStock], globalSearch);
+                    if (!matchesGlobal) return false;
+
+                    const parsedSafety = parseFloat(item.safetyStock);
                     const displaySafety = isNaN(parsedSafety) ? 0 : Math.round(parsedSafety);
-                    const stockVal = (title === '物料庫存' && Number(row.allUsageStock) < 0) ? 0 : row.allUsageStock;
-                    
-                    let cleanId = String(row.id || '').replace(/"/g, '""');
-                    if (cleanId.includes(',') || cleanId.includes('\n')) cleanId = `"${cleanId}"`;
-                    
-                    let cleanSpec = String(row.spec || '').replace(/"/g, '""');
-                    if (cleanSpec.includes(',') || cleanSpec.includes('\n')) cleanSpec = `"${cleanSpec}"`;
-                    
-                    let line = title === '物料庫存'
-                        ? [cleanId, cleanSpec, stockVal, displaySafety]
-                        : [cleanId, cleanSpec, stockVal];
-                        
-                    csvContent += line.join(',') + "\n";
+                    if (onlyNegativeSafety && title === '物料庫存') {
+                        if (displaySafety >= 0) return false;
+                    }
+
+                    if (effectiveSafetySearch) {
+                        const opMatch = effectiveSafetySearch.match(/^([><]=?|=)\s*(-?\d+(\.\d+)?)/);
+                        if (opMatch) {
+                            const op = opMatch[1];
+                            const val = parseFloat(opMatch[2]);
+                            if (op === '>') if (!(displaySafety > val)) return false;
+                            if (op === '>=') if (!(displaySafety >= val)) return false;
+                            if (op === '<') if (!(displaySafety < val)) return false;
+                            if (op === '<=') if (!(displaySafety <= val)) return false;
+                            if (op === '=') if (!(displaySafety === val)) return false;
+                        } else {
+                            if (!String(displaySafety).includes(effectiveSafetySearch)) return false;
+                        }
+                    }
+
+                    if (effectiveStockSearch) {
+                        const parsedStock = parseFloat(item.allUsageStock);
+                        const displayStock = isNaN(parsedStock) ? 0 : (parsedStock < 0 ? 0 : parsedStock);
+                        const opMatch = effectiveStockSearch.match(/^([><]=?|=)\s*(-?\d+(\.\d+)?)/);
+                        if (opMatch) {
+                            const op = opMatch[1];
+                            const val = parseFloat(opMatch[2]);
+                            if (op === '>') if (!(displayStock > val)) return false;
+                            if (op === '>=') if (!(displayStock >= val)) return false;
+                            if (op === '<') if (!(displayStock < val)) return false;
+                            if (op === '<=') if (!(displayStock <= val)) return false;
+                            if (op === '=') if (!(displayStock === val)) return false;
+                        } else {
+                            if (!String(displayStock).includes(effectiveStockSearch)) return false;
+                        }
+                    }
+
+                    return true;
                 });
-                
+            }, [data, globalSearch, onlyNegativeSafety, effectiveSafetySearch, effectiveStockSearch, title]);
+
+            const prevExportTrigger = useRef(exportTrigger);
+            useEffect(() => {
+                if (exportTrigger > 0 && exportTrigger !== prevExportTrigger.current) {
+                    prevExportTrigger.current = exportTrigger;
+                    exportToCSV();
+                }
+            }, [exportTrigger]);
+
+            const exportToCSV = () => {
+                if (!filteredData || filteredData.length === 0) return;
+
+                let csvContent = "\uFEFF";
+                if (title === '物料庫存') {
+                    csvContent += "料號,品名規格,現有實際庫存,安全庫存差異\n";
+                    filteredData.forEach(row => {
+                        const parsedSafety = parseFloat(row.safetyStock);
+                        const displaySafety = isNaN(parsedSafety) ? 0 : Math.round(parsedSafety);
+                        const displayStock = (Number(row.allUsageStock) < 0) ? 0 : row.allUsageStock;
+                        const safeId = `"${String(row.id || '').replace(/"/g, '""')}"`;
+                        const safeSpec = `"${String(row.spec || '').replace(/"/g, '""')}"`;
+                        csvContent += `${safeId},${safeSpec},${displayStock},${displaySafety}\n`;
+                    });
+                } else {
+                    csvContent += "料號,品名規格,現有實際庫存\n";
+                    filteredData.forEach(row => {
+                        const safeId = `"${String(row.id || '').replace(/"/g, '""')}"`;
+                        const safeSpec = `"${String(row.spec || '').replace(/"/g, '""')}"`;
+                        csvContent += `${safeId},${safeSpec},${row.allUsageStock}\n`;
+                    });
+                }
+
                 const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
                 const url = URL.createObjectURL(blob);
                 const link = document.createElement("a");
                 link.setAttribute("href", url);
-                link.setAttribute("download", `${title}_${new Date().toISOString().slice(0, 10)}.csv`);
+                link.setAttribute("download", `${title}_${new Date().toISOString().slice(0,10)}.csv`);
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
             };
 
-            // 💡 當頂層傳遞 exportTrigger 變化時，觸發下載匯出
-            useEffect(() => {
-                if (exportTrigger && exportTrigger > 0 && title === '物料庫存') {
-                    exportToCSV();
-                }
-            }, [exportTrigger]);
-
-            const filtered = useMemo(() => data.filter(i => {
-                let matchesGlobal = isMatch(Object.values(i), globalSearch);
-                let matchesSafety = true;
-                let matchesStock = true;
-
-                if (title === '物料庫存') {
-                    // 💡 安全庫存差異按鈕篩選 (若點選只顯示負數，過濾正數和零)
-                    if (onlyNegativeSafety) {
-                        const parsedSafety = parseFloat(i.safetyStock);
-                        const displaySafety = isNaN(parsedSafety) ? 0 : Math.round(parsedSafety);
-                        if (displaySafety >= 0) {
-                            return false; 
-                        }
-                    }
-
-                    if (safetySearch && safetySearch.trim() !== '') {
-                        const ss = safetySearch.trim();
-                        const parsedSafety = parseFloat(i.safetyStock);
-                        const displaySafety = isNaN(parsedSafety) ? 0 : Math.round(parsedSafety);
-                        const opMatch = ss.match(/^([><]=?|=)\s*(-?\d+(\.\d+)?)/);
-                        if (opMatch) {
-                            const op = opMatch[1]; const val = parseFloat(opMatch[2]);
-                            if (op === '>') matchesSafety = displaySafety > val;
-                            else if (op === '>=') matchesSafety = displaySafety >= val;
-                            else if (op === '<') matchesSafety = displaySafety < val;
-                            else if (op === '<=') matchesSafety = displaySafety <= val;
-                            else if (op === '=') matchesSafety = displaySafety === val;
-                        } else matchesSafety = String(displaySafety).includes(ss);
-                    }
-                    if (stockSearch && stockSearch.trim() !== '') {
-                        const stkS = stockSearch.trim();
-                        const parsedStock = parseFloat(i.allUsageStock);
-                        const displayStock = isNaN(parsedStock) ? 0 : (parsedStock < 0 ? 0 : parsedStock);
-                        const opMatch = stkS.match(/^([><]=?|=)\s*(-?\d+(\.\d+)?)/);
-                        if (opMatch) {
-                            const op = opMatch[1]; const val = parseFloat(opMatch[2]);
-                            if (op === '>') matchesStock = displayStock > val;
-                            else if (op === '>=') matchesStock = displayStock >= val;
-                            else if (op === '<') matchesStock = displayStock < val;
-                            else if (op === '<=') matchesStock = displayStock <= val;
-                            else if (op === '=') matchesStock = displayStock === val;
-                        } else matchesStock = String(displayStock).includes(stkS);
-                    }
-                }
-                return matchesGlobal && matchesSafety && matchesStock;
-            }), [data, globalSearch, safetySearch, stockSearch, title, onlyNegativeSafety]);
-
             return (
                 <div className="flex flex-col h-full p-4 sm:p-6 text-left">
                     {data.length === 0 ? (
                         <div className="flex flex-col items-center justify-center flex-1 text-teal-600 p-8">
-                            <div className="content-panel rounded-full p-6 mb-6 border-slate-200">
-                                <Icon name="file-up" className="w-16 h-16 text-teal-500" />
+                            <div className="content-panel rounded-full p-8 mb-6 border-slate-200">
+                                <Icon name="database" className="w-20 h-20 text-teal-500" />
                             </div>
-                            <p className="text-base mt-3 text-teal-700 tracking-widest text-center font-mono font-bold">請同步雲端資料或上傳 Excel 庫存檔案</p>
-                            
+                            <p className="text-lg text-teal-700 tracking-widest text-center font-mono font-bold">請同步雲端資料或上傳包含「{title}」的 Excel</p>
                             <label className="mt-6 px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 cursor-pointer shadow-md transition-all whitespace-nowrap">
-                                <Icon name="upload" className="w-4 h-4 text-white" /> 選擇庫存 Excel 上傳
+                                <Icon name="upload" className="w-4 h-4 text-white" /> 選擇 Excel 檔案上傳
                                 <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={e => {
                                     const file = e.target.files[0];
                                     if (file) onUploadInv(file);
@@ -1255,385 +1253,420 @@
                         </div>
                     ) : (
                         <div className="content-panel flex-1 overflow-hidden flex flex-col">
+                            <div className="p-3 bg-white/40 border-b border-slate-200/50 flex flex-wrap gap-3 items-center justify-between">
+                                <div className="flex items-center gap-2 text-sm font-bold text-slate-700">
+                                    <span>{title}清單</span>
+                                    <span className="text-xs bg-teal-50 text-teal-700 border border-teal-200 px-2 py-0.5 rounded font-tech-mono">共 {filteredData.length} 筆</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    {showDataPanel && (
+                                        <input
+                                            type="text"
+                                            placeholder="安全庫存過濾 (如 <0 或 50)"
+                                            className="bg-white/80 border border-slate-200 rounded px-2 py-1 text-xs outline-none focus:border-teal-500 font-tech-mono w-48"
+                                            value={localSafetyFilter}
+                                            onChange={e => setLocalSafetyFilter(e.target.value)}
+                                        />
+                                    )}
+                                    <input
+                                        type="text"
+                                        placeholder="現有庫存過濾 (如 >10)"
+                                        className="bg-white/80 border border-slate-200 rounded px-2 py-1 text-xs outline-none focus:border-teal-500 font-tech-mono w-44"
+                                        value={localStockFilter}
+                                        onChange={e => setLocalStockFilter(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+
                             <div className="overflow-auto flex-1">
-                                <table className="w-full table-auto text-left border-collapse bg-white/40 backdrop-blur-sm">
-                                    <thead className="bg-white/60 sticky top-0 z-10 text-[10px] sm:text-sm font-bold text-teal-800 uppercase tracking-widest border-b border-white/50">
+                                <table className="w-full table-auto text-left border-collapse min-w-max bg-white/40 backdrop-blur-sm">
+                                    <thead className="bg-white/60 sticky top-0 z-10 text-xs sm:text-sm font-bold text-teal-800 uppercase tracking-widest border-b border-white/50">
                                         <tr>
-                                            <th className="p-3 sm:p-4 w-10 sm:w-12 text-center whitespace-nowrap">#</th>
-                                            <th className="p-3 sm:p-4 text-left min-w-[120px] break-all">料號</th>
-                                            <th className="p-3 sm:p-4 text-left min-w-[200px] break-words">品名</th>
-                                            
-                                            {/* 💡 恢復乾淨簡單的純文字表頭 */}
-                                            <th className="p-3 sm:p-4 text-center bg-teal-50/70 text-teal-800 border-x border-white/40 whitespace-nowrap">現有實際庫存</th>
-                                            
-                                            {title === '物料庫存' && (
-                                                <th className="p-3 sm:p-4 text-center bg-orange-50/70 text-orange-800 border-r border-white/40 whitespace-nowrap">安全庫存差異</th>
-                                            )}
-                                            {showDataPanel && <th className="p-3 sm:p-4 text-center whitespace-nowrap">數據面板</th>}
+                                            <th className="px-3 py-3 w-12 text-center whitespace-nowrap">#</th>
+                                            <th className="px-3 py-3">料號</th>
+                                            <th className="px-3 py-3">品名規格</th>
+                                            <th className="px-3 py-3 text-center">現有實際庫存</th>
+                                            {showDataPanel && <th className="px-3 py-3 text-center">安全庫存差異</th>}
+                                            <th className="px-3 py-3 text-center">季報與明細</th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-white/40 text-sm sm:text-base text-slate-700 font-mono">
-                                        {filtered.map((row, idx) => {
+                                    <tbody className="divide-y divide-white/40 text-sm text-slate-700">
+                                        {filteredData.map((row, idx) => {
                                             const parsedSafety = parseFloat(row.safetyStock);
                                             const displaySafety = isNaN(parsedSafety) ? 0 : Math.round(parsedSafety);
-                                            const safetyColorClass = displaySafety < 0 ? 'text-red-600' : 'text-slate-700';
+                                            const displayStock = (title === '物料庫存' && Number(row.allUsageStock) < 0) ? 0 : row.allUsageStock;
+
                                             return (
                                                 <tr key={idx} className="hover:bg-white/60 transition-colors">
-                                                    <td className="p-3 sm:p-4 text-center text-slate-500 font-sans whitespace-nowrap">{idx + 1}</td>
-                                                    <td className="p-3 sm:p-4 font-bold text-slate-800 text-left break-all">{row.id}</td>
-                                                    <td className="p-3 sm:p-4 text-slate-600 text-[10px] sm:text-sm font-sans leading-relaxed break-words">{row.spec}</td>
-                                                    <td className="p-3 sm:p-4 text-center font-black text-slate-800 text-base sm:text-lg bg-white/40 whitespace-nowrap border-x border-white/30">
-                                                        {title === '物料庫存' && Number(row.allUsageStock) < 0 ? 0 : row.allUsageStock}
-                                                    </td>
-                                                    {title === '物料庫存' && (
-                                                        <td className={`p-3 sm:p-4 text-center font-bold text-base sm:text-lg bg-white/40 whitespace-nowrap border-r border-white/30 ${safetyColorClass}`}>
-                                                            {displaySafety}
-                                                        </td>
-                                                    )}
+                                                    <td className="px-3 py-2 text-center text-slate-400 font-tech-mono">{idx + 1}</td>
+                                                    <td className="px-3 py-2 font-tech-mono font-bold text-teal-700 break-all">{row.id || '-'}</td>
+                                                    <td className="px-3 py-2 max-w-[300px] break-words text-slate-600">{row.spec || '-'}</td>
+                                                    <td className="px-3 py-2 text-center font-tech-mono font-bold text-slate-800 text-base">{displayStock}</td>
                                                     {showDataPanel && (
-                                                        <td className="p-3 sm:p-4 text-center font-sans whitespace-nowrap">
-                                                            <button onClick={() => setSelected(row)} className="px-2 py-1 sm:px-3 sm:py-1.5 bg-blue-600 text-white border border-blue-700 rounded text-[10px] sm:text-xs font-bold hover:bg-blue-700 hover:shadow-md transition-colors shadow-sm whitespace-nowrap">季報與平均</button>
+                                                        <td className="px-3 py-2 text-center font-tech-mono">
+                                                            <span className={`px-2 py-0.5 rounded text-xs font-bold border ${displaySafety < 0 ? 'bg-red-50 text-red-600 border-red-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                                                                {displaySafety}
+                                                            </span>
                                                         </td>
                                                     )}
+                                                    <td className="px-3 py-2 text-center">
+                                                        <button
+                                                            onClick={() => setSelectedItem(row)}
+                                                            className="px-2.5 py-1 bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 rounded text-xs font-bold transition-all shadow-sm"
+                                                        >
+                                                            明細
+                                                        </button>
+                                                    </td>
                                                 </tr>
                                             );
                                         })}
-                                        {filtered.length === 0 && (
-                                            <tr><td colSpan={6} className="px-6 py-20 text-center text-slate-500 font-bold text-base sm:text-lg font-sans">查無相符資料</td></tr>
+                                        {filteredData.length === 0 && (
+                                            <tr><td colSpan="6" className="px-6 py-20 text-center text-slate-500 font-bold text-lg">查無相符資料</td></tr>
                                         )}
                                     </tbody>
                                 </table>
                             </div>
                         </div>
                     )}
-                    {showDataPanel && selected && <YearlyDataModal title={title} item={selected} onClose={() => setSelected(null)} />}
+
+                    {selectedItem && (
+                        <YearlyDataModal title={title} item={selectedItem} onClose={() => setSelectedItem(null)} />
+                    )}
+                </div>
+            );
+        };
+
+        const DetailedInfoSystem = ({ orderData, invData, globalSearch, orderColumns }) => {
+            const matchedOrders = useMemo(() => {
+                if (!orderData || orderData.length === 0) return [];
+                if (!globalSearch.trim()) return orderData.slice(0, 50);
+                return orderData.filter(o => isMatch(Object.values(o), globalSearch));
+            }, [orderData, globalSearch]);
+
+            const matchedPurchases = useMemo(() => {
+                if (!invData || !invData.purchaseInfo) return [];
+                if (!globalSearch.trim()) return invData.purchaseInfo.slice(0, 50);
+                return invData.purchaseInfo.filter(p => isMatch(Object.values(p), globalSearch));
+            }, [invData, globalSearch]);
+
+            return (
+                <div className="flex flex-col h-full p-4 sm:p-6 text-left space-y-6 overflow-y-auto">
+                    <div className="content-panel p-4 flex flex-col">
+                        <h3 className="text-lg font-bold text-teal-800 mb-3 flex items-center gap-2">
+                            <Icon name="clipboard-list" className="w-5 h-5 text-teal-600" />
+                            訂單搜尋結果 ({matchedOrders.length} 筆)
+                        </h3>
+                        <div className="overflow-x-auto max-h-[300px]">
+                            <table className="w-full text-sm text-left border-collapse">
+                                <thead className="bg-white/60 sticky top-0 text-xs text-teal-800 font-bold uppercase">
+                                    <tr>
+                                        <th className="px-3 py-2">工單號碼</th>
+                                        <th className="px-3 py-2">客戶</th>
+                                        <th className="px-3 py-2">預計進貨</th>
+                                        <th className="px-3 py-2">預計出貨</th>
+                                        <th className="px-3 py-2">客戶交期</th>
+                                        <th className="px-3 py-2">備註/注意事項</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-white/40 text-slate-700">
+                                    {matchedOrders.map((row, idx) => (
+                                        <tr key={idx} className="hover:bg-white/60">
+                                            <td className="px-3 py-2 font-tech-mono font-bold text-teal-700">{row.workOrder || '-'}</td>
+                                            <td className="px-3 py-2">{row.client || '-'}</td>
+                                            <td className="px-3 py-2 font-tech-mono">{row.recvDate || '-'}</td>
+                                            <td className="px-3 py-2 font-tech-mono">{row.shipDate || '-'}</td>
+                                            <td className="px-3 py-2 font-tech-mono">{row.custDeliveryDate || '-'}</td>
+                                            <td className="px-3 py-2 text-xs text-slate-500 max-w-[200px] truncate">{row.notes || row.remarks || '-'}</td>
+                                        </tr>
+                                    ))}
+                                    {matchedOrders.length === 0 && (
+                                        <tr><td colSpan="6" className="py-8 text-center text-slate-400 font-bold">無匹配訂單資料</td></tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div className="content-panel p-4 flex flex-col">
+                        <h3 className="text-lg font-bold text-teal-800 mb-3 flex items-center gap-2">
+                            <Icon name="shopping" className="w-5 h-5 text-teal-600" />
+                            進貨資訊搜尋結果 ({matchedPurchases.length} 筆)
+                        </h3>
+                        <div className="overflow-x-auto max-h-[300px]">
+                            <table className="w-full text-sm text-left border-collapse">
+                                <thead className="bg-white/60 sticky top-0 text-xs text-teal-800 font-bold uppercase">
+                                    <tr>
+                                        <th className="px-3 py-2">進貨日期</th>
+                                        <th className="px-3 py-2">客戶</th>
+                                        <th className="px-3 py-2">工單號碼</th>
+                                        <th className="px-3 py-2">料號</th>
+                                        <th className="px-3 py-2">機種</th>
+                                        <th className="px-3 py-2">數量</th>
+                                        <th className="px-3 py-2">狀態</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-white/40 text-slate-700">
+                                    {matchedPurchases.map((row, idx) => (
+                                        <tr key={idx} className="hover:bg-white/60">
+                                            <td className="px-3 py-2 font-tech-mono">{row.date || '-'}</td>
+                                            <td className="px-3 py-2">{row.customer || '-'}</td>
+                                            <td className="px-3 py-2 font-tech-mono font-bold text-teal-700">{row.workOrder || '-'}</td>
+                                            <td className="px-3 py-2 font-tech-mono">{row.partNo || '-'}</td>
+                                            <td className="px-3 py-2">{row.model || '-'}</td>
+                                            <td className="px-3 py-2 font-tech-mono font-bold">{row.qty || 0}</td>
+                                            <td className="px-3 py-2"><StatusBadge status={row.status} /></td>
+                                        </tr>
+                                    ))}
+                                    {matchedPurchases.length === 0 && (
+                                        <tr><td colSpan="7" className="py-8 text-center text-slate-400 font-bold">無匹配進貨資料</td></tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             );
         };
 
         // ==========================================
-        // 詳細資訊整合系統元件 (DetailedInfoSystem)
+        // 進貨資訊 - 客戶與狀態2統計圖表 Modal
         // ==========================================
-        const DetailedInfoSystem = ({ orderData, invData, globalSearch, orderColumns }) => {
-            const query = (globalSearch || '').trim().toLowerCase();
-            const [selectedOrder, setSelectedOrder] = useState(null);
+        const PurchaseChartModal = ({ data, onClose }) => {
+            const [dateRange, setDateRange] = useState({ start: '', end: '' });
+            const [activeView, setActiveView] = useState('customer'); // 'customer' | 'status2'
 
-            const actualInventoryMap = useMemo(() => {
-                const map = {};
-                if (invData.materialInventory) invData.materialInventory.forEach(item => { if (item.id) map[String(item.id).trim().toLowerCase()] = item.allUsageStock; });
-                if (invData.consumableInventory) invData.consumableInventory.forEach(item => { if (item.id) map[String(item.id).trim().toLowerCase()] = item.allUsageStock; });
-                return map;
-            }, [invData.materialInventory, invData.consumableInventory]);
+            const filteredData = useMemo(() => {
+                if (!data || data.length === 0) return [];
+                const startTs = parseDateTimestamp(dateRange.start);
+                const endTs = parseDateTimestamp(dateRange.end);
 
-            const getDisplayStock = (partNo, originalStock) => {
-                if (!partNo) return originalStock;
-                const normalizedPartNo = String(partNo).trim().toLowerCase();
-                return actualInventoryMap[normalizedPartNo] !== undefined ? actualInventoryMap[normalizedPartNo] : originalStock;
-            };
+                return data.filter(item => {
+                    if (!dateRange.start && !dateRange.end) return true;
+                    const itemTs = parseDateTimestamp(item.date);
+                    if (!itemTs) return false;
+                    if (startTs && itemTs < startTs) return false;
+                    if (endTs && itemTs > endTs) return false;
+                    return true;
+                });
+            }, [data, dateRange]);
 
-            const getRelatedWorkOrders = (partNo) => {
-                if (!partNo) return [];
-                const target = String(partNo).trim().toLowerCase();
-                const list = [];
-                if (invData.workOrders) {
-                    invData.workOrders.forEach(wo => {
-                        if (String(wo.partNo).trim().toLowerCase() === target) {
-                            list.push({ id: wo.id, qty: wo.plannedQty });
-                        }
-                    });
-                }
-                if (invData.issued) {
-                    invData.issued.forEach(wo => {
-                        if (String(wo.partNo).trim().toLowerCase() === target) {
-                            list.push({ id: wo.id, qty: wo.plannedQty });
-                        }
-                    });
-                }
-                return list;
-            };
+            // 統計資料彙整
+            const stats = useMemo(() => {
+                const customerMap = {};
+                const status2Map = {};
 
-            const allWOs = useMemo(() => {
-                return [
-                    ...(invData.workOrders || []),
-                    ...(invData.issued || []),
-                    ...(invData.pendingShipment || [])
-                ];
-            }, [invData.workOrders, invData.issued, invData.pendingShipment]);
+                filteredData.forEach(item => {
+                    const cust = (item.customer || '未知客戶').trim();
+                    const rawSt2 = (item.status2 || '').trim();
+                    const q = parseFloat(item.qty) || 0;
 
-            const results = useMemo(() => {
-                if (!query) return { orders: [], workOrders: [], inventory: [] };
+                    if (!customerMap[cust]) customerMap[cust] = { count: 0, qty: 0 };
+                    customerMap[cust].count += 1;
+                    customerMap[cust].qty += q;
 
-                const matchedOrders = orderData.filter(o => isMatch(Object.values(o), query));
-
-                const associatedWOIds = new Set([
-                    ...matchedOrders.map(o => String(o.workOrder || '').trim().toLowerCase())
-                ].filter(Boolean));
-
-                const groupedWOs = getGroupedAndFilteredData(allWOs, "", false);
-                const matchedWOs = groupedWOs.filter(g => {
-                    const isDirect = isMatch([g.id, g.customer, g.mainSpec, g.recvDate, g.shipDate], query);
-                    const isRelational = g.id && associatedWOIds.has(String(g.id).trim().toLowerCase());
-                    return isDirect || isRelational;
+                    // 排除「未分類」與空白之狀態2筆數
+                    if (rawSt2 && rawSt2 !== '未分類') {
+                        if (!status2Map[rawSt2]) status2Map[rawSt2] = { count: 0, qty: 0 };
+                        status2Map[rawSt2].count += 1;
+                        status2Map[rawSt2].qty += q;
+                    }
                 });
 
-                const relevantPartNos = new Set([
-                    ...matchedOrders.map(o => String(o.bfPart || '').trim().toLowerCase()),
-                    ...matchedOrders.map(o => String(o.custPart || '').trim().toLowerCase()),
-                    ...matchedWOs.flatMap(g => g.items.map(i => String(i.partNo || '').trim().toLowerCase()))
-                ].filter(Boolean));
+                const customerList = Object.keys(customerMap).map(k => ({
+                    name: k,
+                    count: customerMap[k].count,
+                    qty: customerMap[k].qty
+                })).sort((a, b) => b.count - a.count);
 
-                const matchedInventory = (invData.materialInventory || []).filter(item => {
-                    const isDirect = isMatch([item.id, item.spec], query);
-                    const isRelational = item.id && relevantPartNos.has(String(item.id).trim().toLowerCase());
-                    return isDirect || isRelational;
-                });
+                const status2List = Object.keys(status2Map).map(k => ({
+                    name: k,
+                    count: status2Map[k].count,
+                    qty: status2Map[k].qty
+                })).sort((a, b) => b.count - a.count);
+
+                const maxCustCount = customerList.reduce((m, c) => Math.max(m, c.count), 1);
+                const maxSt2Count = status2List.reduce((m, c) => Math.max(m, c.count), 1);
+
+                const totalCustCount = customerList.reduce((sum, c) => sum + c.count, 0);
+                const totalAbnormalCount = status2List.reduce((sum, c) => sum + c.count, 0);
+                const abnormalRate = filteredData.length > 0 
+                    ? ((totalAbnormalCount / filteredData.length) * 100).toFixed(1) + '%' 
+                    : '0%';
 
                 return {
-                    orders: matchedOrders,
-                    workOrders: matchedWOs,
-                    inventory: matchedInventory
+                    totalRecords: filteredData.length,
+                    customerList,
+                    status2List,
+                    maxCustCount,
+                    maxSt2Count,
+                    totalCustCount,
+                    totalAbnormalCount,
+                    abnormalRate
                 };
-            }, [orderData, invData.materialInventory, allWOs, query]);
-
-            const visibleOrderColumns = useMemo(() => {
-                if (!orderColumns) return [];
-                return orderColumns.filter(col => 
-                    col.id !== 'recvDate' && 
-                    col.id !== 'shipDate' && 
-                    col.id !== 'custDeliveryDate' &&
-                    col.id !== 'fileSource' &&
-                    col.id !== 'notes' &&
-                    col.id !== 'remarks'
-                );
-            }, [orderColumns]);
-
-            if (!query) {
-                return (
-                    <div className="flex flex-col items-center justify-center h-full p-8 text-teal-600">
-                        <div className="content-panel rounded-full p-8 mb-6 border-slate-200">
-                            <Icon name="info" className="w-20 h-20 text-teal-500" />
-                        </div>
-                        <p className="text-xl font-bold text-teal-700 tracking-wider text-center">請在上方搜尋欄輸入關鍵字進行詳細查詢</p>
-                        <p className="text-sm text-slate-500 mt-2 text-center max-w-md leading-relaxed">
-                            在全域搜尋輸入<strong>工單號、客戶、料號或規格</strong>，系統將智慧整合並串起對應的「工單、進貨資訊與用料明細&庫存狀況」。
-                        </p>
-                    </div>
-                );
-            }
-
-            const isEmpty = !results.orders.length && !results.workOrders.length;
-
-            if (isEmpty) {
-                return (
-                    <div className="flex flex-col items-center justify-center h-full p-8 text-slate-500">
-                        <div className="content-panel rounded-full p-8 mb-6 border-slate-200">
-                            <Icon name="x" className="w-20 h-20 text-slate-400" />
-                        </div>
-                        <p className="text-xl font-bold text-slate-700 tracking-wider text-center">查無關聯整合資料</p>
-                        <p className="text-sm text-slate-400 mt-2 text-center">您可以嘗試更換搜尋關鍵字，或確認檔案內是否存在此項目。</p>
-                    </div>
-                );
-            }
+            }, [filteredData]);
 
             return (
-                <div className="h-full overflow-y-auto pb-12 pr-2">
-                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                        <div className="content-panel p-5 flex flex-col h-[380px] xl:col-span-2">
-                            <div className="flex items-center gap-2 mb-3 border-b border-slate-200/50 pb-2">
-                                <Icon name="clipboard-list" className="w-5 h-5 text-teal-600" />
-                                <h3 className="font-bold text-slate-800 text-base sm:text-lg">工單 ({results.orders.length})</h3>
+                <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" onClick={onClose}>
+                    <div className="bg-white/95 backdrop-blur-md w-full max-w-5xl h-[85vh] rounded-2xl shadow-2xl border border-slate-200/80 flex flex-col modal-animate overflow-hidden text-left" onClick={e => e.stopPropagation()}>
+                        
+                        {/* Header */}
+                        <div className="bg-gradient-to-r from-teal-700 to-teal-600 px-6 py-4 flex flex-wrap justify-between items-center text-white shrink-0 shadow-md">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 bg-white/20 rounded-lg backdrop-blur-sm">
+                                    <Icon name="chart" className="w-6 h-6 text-white" />
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-bold tracking-wider">單據狀態</h3>
+                                    <p className="text-xs text-teal-100 mt-0.5">來源：進貨表工作表 | 即時數量統計分析</p>
+                                </div>
                             </div>
-                            <div className="overflow-auto flex-1">
-                                {results.orders.length === 0 ? (
-                                    <p className="text-sm text-slate-400 text-center py-20">無工單資料</p>
-                                ) : (
-                                    <table className="w-full table-auto text-left text-xs sm:text-sm border-collapse">
-                                        <thead className="bg-slate-50 sticky top-0 font-bold text-slate-700 border-b border-slate-200">
-                                            <tr>
-                                                {visibleOrderColumns.map(col => (
-                                                    <th key={col.id} className="px-3 py-2 whitespace-nowrap">{col.label}</th>
-                                                ))}
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-100 text-slate-600">
-                                            {results.orders.map((o, idx) => (
-                                                <tr key={idx} className="hover:bg-slate-50/50">
-                                                    {visibleOrderColumns.map(col => (
-                                                        <td key={col.id} className="px-3 py-2 whitespace-nowrap">
-                                                            {col.id === 'workOrder' ? (
-                                                                <button 
-                                                                    onClick={() => setSelectedOrder(o)} 
-                                                                    className="font-bold text-teal-700 hover:text-teal-500 hover:underline text-left transition-all"
-                                                                >
-                                                                    {o[col.id] || '-'}
-                                                                </button>
-                                                            ) : (
-                                                                o[col.id] || '-'
-                                                            )}
-                                                        </td>
-                                                    ))}
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
+                            <button onClick={onClose} className="p-2 hover:bg-white/20 rounded-full text-white transition-colors">
+                                <Icon name="x" className="w-6 h-6" />
+                            </button>
+                        </div>
+
+                        {/* Controls & Filter Bar */}
+                        <div className="p-4 bg-slate-50 border-b border-slate-200/80 flex flex-wrap items-center justify-between gap-4 shrink-0">
+                            {/* 日期區間選擇 */}
+                            <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-slate-300 shadow-sm">
+                                <Icon name="calendar" className="w-5 h-5 text-teal-600" />
+                                <span className="text-xs font-bold text-slate-600">進貨日期區間：</span>
+                                <input 
+                                    type="date" 
+                                    className="bg-transparent text-sm font-mono text-slate-800 outline-none"
+                                    value={dateRange.start}
+                                    onChange={e => setDateRange({ ...dateRange, start: e.target.value })}
+                                />
+                                <span className="text-slate-400 font-bold">~</span>
+                                <input 
+                                    type="date" 
+                                    className="bg-transparent text-sm font-mono text-slate-800 outline-none"
+                                    value={dateRange.end}
+                                    onChange={e => setDateRange({ ...dateRange, end: e.target.value })}
+                                />
+                                {(dateRange.start || dateRange.end) && (
+                                    <button 
+                                        onClick={() => setDateRange({ start: '', end: '' })} 
+                                        className="text-xs bg-red-50 text-red-600 border border-red-200 px-2 py-0.5 rounded-md hover:bg-red-100 font-bold"
+                                    >
+                                        清除
+                                    </button>
                                 )}
+                            </div>
+
+                            {/* 切換檢視頁籤 */}
+                            <div className="bg-slate-200/80 p-1 rounded-xl flex gap-1">
+                                <button 
+                                    onClick={() => setActiveView('customer')}
+                                    className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${activeView === 'customer' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                                >
+                                    客戶別計數 ({stats.customerList.length})
+                                </button>
+                                <button 
+                                    onClick={() => setActiveView('status2')}
+                                    className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${activeView === 'status2' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                                >
+                                    狀態2計數 ({stats.status2List.length})
+                                </button>
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 xl:col-span-2">
-                            <div className="content-panel p-5 flex flex-col h-[480px]">
-                                <div className="flex items-center gap-2 mb-3 border-b border-slate-200/50 pb-2">
-                                    <Icon name="calendar" className="w-5 h-5 text-blue-600" />
-                                    <h3 className="font-bold text-slate-800 text-base sm:text-lg">
-                                        進貨資訊 ({results.workOrders.filter(g => g.recvDate).length})
-                                    </h3>
-                                </div>
-                                <div className="overflow-auto flex-1 px-1 space-y-3">
-                                    {results.workOrders.filter(g => g.recvDate).map((g, idx) => (
-                                        <div key={`wo-recv-${idx}`} className="bg-blue-50/30 hover:bg-white/95 p-3.5 rounded-lg border border-blue-100 shadow-sm transition-all text-left">
-                                            <div className="text-xs sm:text-sm flex flex-col gap-1.5">
-                                                <div className="flex items-center gap-2 border-b border-blue-50 pb-1">
-                                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">工單</span>
-                                                    <span className="font-bold text-slate-800 font-tech-mono">{g.id}</span>
-                                                </div>
-                                                <div className="font-medium text-slate-600">
-                                                    預計進貨日：
-                                                    <div className="text-blue-700 font-extrabold whitespace-pre-wrap break-all mt-1 leading-relaxed">
-                                                        {g.recvDate}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ))}
-                                    {results.workOrders.filter(g => g.recvDate).length === 0 && (
-                                        <p className="text-sm text-slate-400 text-center py-20">無進貨資訊</p>
-                                    )}
-                                </div>
+                        {/* Metric Cards */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-white/60 border-b border-slate-200/60 shrink-0">
+                            <div className="bg-teal-50/70 p-3 rounded-xl border border-teal-100">
+                                <div className="text-xs font-bold text-teal-700">符合區間總筆數</div>
+                                <div className="text-2xl font-black text-teal-900 font-tech-mono mt-1">{stats.totalRecords} <span className="text-xs font-normal text-slate-500">筆</span></div>
                             </div>
-
-                            <div className="content-panel p-5 flex flex-col h-[480px]">
-                                <div className="flex items-center gap-2 mb-3 border-b border-slate-200/50 pb-2">
-                                    <Icon name="truck" className="w-5 h-5 text-purple-600" />
-                                    <h3 className="font-bold text-slate-800 text-base sm:text-lg">
-                                        出貨資訊 ({results.workOrders.filter(g => g.shipDate).length})
-                                    </h3>
-                                </div>
-                                <div className="overflow-auto flex-1 px-1 space-y-3">
-                                    {results.workOrders.filter(g => g.shipDate).map((g, idx) => (
-                                        <div key={`wo-ship-${idx}`} className="bg-purple-50/30 hover:bg-white/95 p-3.5 rounded-lg border border-purple-100 shadow-sm transition-all text-left">
-                                            <div className="text-xs sm:text-sm flex flex-col gap-1.5">
-                                                <div className="flex items-center gap-2 border-b border-purple-50 pb-1">
-                                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">工單</span>
-                                                    <span className="font-bold text-slate-800 font-tech-mono">{g.id}</span>
-                                                </div>
-                                                <div className="font-medium text-slate-600">
-                                                    預計出貨日：
-                                                    <div className="text-purple-700 font-extrabold whitespace-pre-wrap break-all mt-1 leading-relaxed">
-                                                        {g.shipDate}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ))}
-                                    {results.workOrders.filter(g => g.shipDate).length === 0 && (
-                                        <p className="text-sm text-slate-400 text-center py-20">無出貨資訊</p>
-                                    )}
-                                </div>
+                            <div className="bg-emerald-50/70 p-3 rounded-xl border border-emerald-100">
+                                <div className="text-xs font-bold text-emerald-700">客戶</div>
+                                <div className="text-2xl font-black text-emerald-900 font-tech-mono mt-1">{stats.totalCustCount} <span className="text-xs font-normal text-slate-500">筆</span></div>
+                                <div className="text-[10px] text-slate-400 mt-0.5">({stats.customerList.length} 個客戶)</div>
+                            </div>
+                            <div className="bg-indigo-50/70 p-3 rounded-xl border border-indigo-100">
+                                <div className="text-xs font-bold text-indigo-700">單據異常數</div>
+                                <div className="text-2xl font-black text-indigo-900 font-tech-mono mt-1">{stats.totalAbnormalCount} <span className="text-xs font-normal text-slate-500">筆</span></div>
+                                <div className="text-[10px] text-slate-400 mt-0.5">({stats.status2List.length} 種分類)</div>
+                            </div>
+                            <div className="bg-rose-50/70 p-3 rounded-xl border border-rose-100">
+                                <div className="text-xs font-bold text-rose-700">異常率</div>
+                                <div className="text-2xl font-black text-rose-900 font-tech-mono mt-1">{stats.abnormalRate}</div>
                             </div>
                         </div>
 
-                        <div className="content-panel p-5 flex flex-col h-fit xl:col-span-2">
-                            <div className="flex items-center gap-2 mb-3 border-b border-slate-200/50 pb-2">
-                                <Icon name="spreadsheet" className="w-5 h-5 text-teal-600" />
-                                <h3 className="font-bold text-slate-800 text-base sm:text-lg">用料明細&庫存 ({results.workOrders.length})</h3>
-                            </div>
-                            <div className="space-y-4">
-                                {results.workOrders.length === 0 ? (
-                                    <p className="text-sm text-slate-400 text-center py-24">無用料明細&庫存</p>
-                                ) : (
-                                    results.workOrders.map(g => (
-                                        <div key={g.id} className="border border-slate-200/60 bg-white/40 p-4 rounded-lg shadow-sm">
-                                            <div className="flex justify-between items-center border-b border-slate-200/50 pb-2 mb-3">
-                                                <span className="font-bold text-teal-800 text-base sm:text-lg">{g.id}</span>
-                                                <StatusBadge status={g.mainStatus} className="scale-95" />
+                        {/* Visual Chart Bars Container */}
+                        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                            {activeView === 'customer' && (
+                                <div className="space-y-3">
+                                    <div className="text-sm font-bold text-slate-700 mb-2 flex justify-between">
+                                        <span>客戶名稱</span>
+                                        <span>筆數 (進貨數量)</span>
+                                    </div>
+                                    {stats.customerList.map((item, idx) => {
+                                        const pct = Math.round((item.count / stats.maxCustCount) * 100);
+                                        return (
+                                            <div key={idx} className="bg-white p-3 rounded-xl border border-slate-200/80 shadow-sm hover:border-teal-300 transition-all">
+                                                <div className="flex justify-between items-center mb-1.5 text-sm">
+                                                    <span className="font-bold text-slate-800">{item.name}</span>
+                                                    <div className="font-tech-mono">
+                                                        <span className="font-bold text-teal-700 text-base">{item.count} 筆</span>
+                                                        <span className="text-slate-400 text-xs ml-2">(量: {item.qty})</span>
+                                                    </div>
+                                                </div>
+                                                <div className="w-full bg-slate-100 h-3.5 rounded-full overflow-hidden flex">
+                                                    <div 
+                                                        className="bg-gradient-to-r from-teal-500 to-emerald-400 h-full rounded-full transition-all duration-500" 
+                                                        style={{ width: `${pct}%` }}
+                                                    ></div>
+                                                </div>
                                             </div>
-                                            <div className="text-sm text-slate-600 mb-3" title={`${g.customer} | ${g.mainSpec}`}>
-                                                <span className="font-bold text-slate-800">{g.customer}</span> <span className="mx-2 text-slate-300">|</span> <span>{g.mainSpec}</span>
-                                            </div>
-                                            <div className="space-y-2.5 text-sm sm:text-base">
-                                                {g.items.map((item, idx) => {
-                                                    const stockVal = parseFloat(getDisplayStock(item.partNo, item.stockQty));
-                                                    const isNegative = !isNaN(stockVal) && stockVal < 0;
-                                                    const relatedWOs = isNegative ? getRelatedWorkOrders(item.partNo) : [];
+                                        );
+                                    })}
+                                    {stats.customerList.length === 0 && (
+                                        <div className="text-center py-16 text-slate-400 font-bold">目前無符合條件之客戶資料</div>
+                                    )}
+                                </div>
+                            )}
 
-                                                    return (
-                                                        <div key={idx} className="bg-white/70 p-3 rounded-lg border border-slate-100 flex flex-col gap-2 shadow-sm">
-                                                            <div className="flex flex-col sm:flex-row justify-between gap-1.5 sm:gap-4 items-start sm:items-center">
-                                                                <span className="font-mono font-bold text-slate-800 text-base">{item.partNo}</span>
-                                                                <span className="text-slate-500 break-words max-w-full sm:max-w-[240px] md:max-w-[320px] text-sm" title={item.spec}>{item.spec}</span>
-                                                                <div className="flex gap-4 text-right whitespace-nowrap text-sm sm:text-base ml-auto">
-                                                                    <span className="text-teal-600 font-bold">需求: {item.plannedQty}</span>
-                                                                    <span className={isNegative ? "text-red-500 font-extrabold text-base" : "text-slate-600 font-semibold"}>
-                                                                        庫存: {getDisplayStock(item.partNo, item.stockQty)}
-                                                                    </span>
-                                                                </div>
-                                                            </div>
-                                                            
-                                                            {isNegative && relatedWOs.length > 0 && (
-                                                                <div className="mt-2 pl-3.5 border-l-2 border-red-400 space-y-1.5 bg-red-50/40 p-2.5 rounded-lg text-xs sm:text-sm">
-                                                                    <div className="font-bold text-red-600 uppercase tracking-wider flex items-center gap-1">
-                                                                        <Icon name="alert" className="w-4 h-4 text-red-500 shrink-0" />
-                                                                        相關工單追蹤 ({relatedWOs.length})
-                                                                    </div>
-                                                                    <div className="max-h-[140px] overflow-y-auto space-y-1">
-                                                                        {relatedWOs.map((rwo, rIdx) => (
-                                                                            <div key={rIdx} className="flex justify-between text-xs text-slate-600 bg-white/80 px-2.5 py-1 rounded border border-red-100/40 font-mono">
-                                                                                <span className="text-teal-700 font-bold">{rwo.id}</span>
-                                                                                <span>用料表需求: <span className="font-bold text-slate-800">{rwo.qty}</span></span>
-                                                                            </div>
-                                                                        ))}
-                                                                    </div>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    );
-                                                })}
+                            {activeView === 'status2' && (
+                                <div className="space-y-3">
+                                    <div className="text-sm font-bold text-slate-700 mb-2 flex justify-between">
+                                        <span>狀態2 類別</span>
+                                        <span>筆數 (進貨數量)</span>
+                                    </div>
+                                    {stats.status2List.map((item, idx) => {
+                                        const pct = Math.round((item.count / stats.maxSt2Count) * 100);
+                                        return (
+                                            <div key={idx} className="bg-white p-3 rounded-xl border border-slate-200/80 shadow-sm hover:border-teal-300 transition-all">
+                                                <div className="flex justify-between items-center mb-1.5 text-sm">
+                                                    <span className="font-bold text-slate-800 bg-indigo-50 text-indigo-700 border border-indigo-200 px-2.5 py-0.5 rounded-md">{item.name}</span>
+                                                    <div className="font-tech-mono">
+                                                        <span className="font-bold text-indigo-600 text-base">{item.count} 筆</span>
+                                                        <span className="text-slate-400 text-xs ml-2">(量: {item.qty})</span>
+                                                    </div>
+                                                </div>
+                                                <div className="w-full bg-slate-100 h-3.5 rounded-full overflow-hidden flex">
+                                                    <div 
+                                                        className="bg-gradient-to-r from-indigo-500 to-purple-400 h-full rounded-full transition-all duration-500" 
+                                                        style={{ width: `${pct}%` }}
+                                                    ></div>
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))
-                                )}
-                            </div>
+                                        );
+                                    })}
+                                    {stats.status2List.length === 0 && (
+                                        <div className="text-center py-16 text-slate-400 font-bold">目前無符合條件之狀態2資料</div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Footer */}
+                        <div className="p-4 bg-slate-100/80 border-t border-slate-200/80 flex justify-end shrink-0">
+                            <button onClick={onClose} className="px-6 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg font-bold text-sm transition-colors">
+                                關閉視窗
+                            </button>
                         </div>
                     </div>
-
-                    {selectedOrder && (
-                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm" onClick={() => setSelectedOrder(null)}>
-                            <div className="bg-white/85 backdrop-blur-md border border-slate-200/50 w-full max-w-2xl rounded-xl overflow-hidden shadow-xl modal-animate" onClick={e => e.stopPropagation()}>
-                                <div className="bg-white/60 p-5 border-b border-slate-200/50 flex justify-between items-center relative">
-                                    <div className="absolute top-0 left-0 w-1.5 h-full bg-teal-500"></div>
-                                    <div className="font-bold text-slate-800 pl-2 text-xl text-left">工單詳細資訊：{selectedOrder.workOrder}</div>
-                                    <button onClick={() => setSelectedOrder(null)} className="text-slate-400 hover:text-teal-600 transition-colors"><Icon name="x" className="w-6 h-6" /></button>
-                                </div>
-                                <div className="p-6 space-y-5 text-left max-h-[70vh] overflow-y-auto">
-                                    <div>
-                                        <label className="text-sm font-bold text-teal-600 uppercase">作業注意事項</label>
-                                        <div className="bg-white/50 p-4 rounded-lg mt-2 text-base border border-slate-200/50 text-slate-700 leading-relaxed whitespace-pre-wrap">
-                                            {selectedOrder.notes || '無'}
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className="text-sm font-bold text-teal-600 uppercase">備註</label>
-                                        <div className="bg-white/50 p-4 rounded-lg mt-2 text-base border border-slate-200/50 text-slate-700 leading-relaxed whitespace-pre-wrap">
-                                            {selectedOrder.remarks || '無'}
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="bg-white/40 px-6 py-4 flex justify-end border-t border-slate-200/50">
-                                    <button onClick={() => setSelectedOrder(null)} className="px-6 py-2.5 bg-teal-600 text-white rounded-lg font-bold text-base hover:bg-teal-700 transition-colors shadow-sm">關閉視窗</button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
                 </div>
             );
         };
@@ -1673,10 +1706,11 @@
             const [dates, setDates] = useState({ start: '', end: '' });
             const [onlyShortage, setOnlyShortage] = useState(false);
             const [onlyAbnormal, setOnlyAbnormal] = useState(false); 
+            const [showPurchaseChartModal, setShowPurchaseChartModal] = useState(false);
             
-            // 💡 安全庫存差異 只看負數模式狀態 (App 全域狀態控制)
+            // 安全庫存差異 只看負數模式狀態 (App 全域狀態控制)
             const [onlyNegativeSafety, setOnlyNegativeSafety] = useState(false);
-            // 💡 匯出 CSV 檔觸發訊號
+            // 匯出 CSV 檔觸發訊號
             const [exportTrigger, setExportTrigger] = useState(0);
 
             const [orderState, setOrderState] = useState({ data: [], files: [] });
@@ -1943,9 +1977,14 @@
                                     </button>
                                 )}
                                 {module === 'purchaseInfo' && ( 
-                                    <button onClick={() => setOnlyAbnormal(!onlyAbnormal)} className={`px-3 py-1.5 rounded-lg text-sm font-bold border transition-all whitespace-nowrap shadow-sm mr-1 ${onlyAbnormal ? 'bg-amber-50 border-amber-300 text-amber-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
-                                        <div className="flex items-center gap-1.5"><Icon name="file-warning" className="w-4 h-4" /> 異常狀態</div>
-                                    </button>
+                                    <>
+                                        <button onClick={() => setOnlyAbnormal(!onlyAbnormal)} className={`px-3 py-1.5 rounded-lg text-sm font-bold border transition-all whitespace-nowrap shadow-sm mr-1 ${onlyAbnormal ? 'bg-amber-50 border-amber-300 text-amber-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                                            <div className="flex items-center gap-1.5"><Icon name="file-warning" className="w-4 h-4" /> 異常狀態</div>
+                                        </button>
+                                        <button onClick={() => setShowPurchaseChartModal(true)} className="px-3 py-1.5 rounded-lg text-sm font-bold border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-all whitespace-nowrap shadow-sm mr-1 flex items-center gap-1.5">
+                                            <Icon name="chart" className="w-4 h-4 text-teal-600" /> 圖表
+                                        </button>
+                                    </>
                                 )}
                                 
                                 {module === 'purchaseInfo' && (
@@ -2061,6 +2100,13 @@
                                 </div>
                             </div>
                         </div>
+                    )}
+
+                    {showPurchaseChartModal && (
+                        <PurchaseChartModal 
+                            data={invState.data.purchaseInfo} 
+                            onClose={() => setShowPurchaseChartModal(false)} 
+                        />
                     )}
                 </div>
             );
