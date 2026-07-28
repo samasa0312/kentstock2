@@ -1435,7 +1435,6 @@
         // ==========================================
         const PurchaseChartModal = ({ data, onClose }) => {
             const [dateRange, setDateRange] = useState({ start: '', end: '' });
-            const [activeView, setActiveView] = useState('customer'); // 'customer' | 'status2'
             const [isExporting, setIsExporting] = useState(false);
 
             const exportPDF = () => {
@@ -1453,7 +1452,8 @@
                             filename:     `單據狀態統計圖表_${new Date().toISOString().slice(0,10)}.pdf`,
                             image:        { type: 'jpeg', quality: 0.98 },
                             html2canvas:  { scale: 2, useCORS: true, logging: false },
-                            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'landscape' }
+                            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'landscape' },
+                            pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
                         };
                         window.html2pdf().set(opt).from(element).save().then(() => {
                             setIsExporting(false);
@@ -1482,10 +1482,10 @@
                 });
             }, [data, dateRange]);
 
-            // 統計資料彙整
+            // 統計資料彙整：以客戶為開頭，合併統計單據異常數量並進行狀態2分類
             const stats = useMemo(() => {
                 const customerMap = {};
-                const status2Map = {};
+                const globalStatus2Map = {};
 
                 filteredData.forEach(item => {
                     const cust = (item.customer || '未知客戶').trim();
@@ -1494,34 +1494,50 @@
 
                     // 僅針對有單據異常（狀態2存在且排除「未分類」與空白）進行客戶與狀態2累計
                     if (rawSt2 && rawSt2 !== '未分類') {
-                        // 1. 累計含有單據異常的客戶次數與數量
-                        if (!customerMap[cust]) customerMap[cust] = { count: 0, qty: 0 };
+                        // 1. 依客戶分類與統計
+                        if (!customerMap[cust]) {
+                            customerMap[cust] = { count: 0, qty: 0, status2Map: {} };
+                        }
                         customerMap[cust].count += 1;
                         customerMap[cust].qty += q;
 
-                        // 2. 累計狀態2異常類別筆數與數量
-                        if (!status2Map[rawSt2]) status2Map[rawSt2] = { count: 0, qty: 0 };
-                        status2Map[rawSt2].count += 1;
-                        status2Map[rawSt2].qty += q;
+                        if (!customerMap[cust].status2Map[rawSt2]) {
+                            customerMap[cust].status2Map[rawSt2] = { count: 0, qty: 0 };
+                        }
+                        customerMap[cust].status2Map[rawSt2].count += 1;
+                        customerMap[cust].status2Map[rawSt2].qty += q;
+
+                        // 2. 全域狀態2統計
+                        if (!globalStatus2Map[rawSt2]) globalStatus2Map[rawSt2] = { count: 0, qty: 0 };
+                        globalStatus2Map[rawSt2].count += 1;
+                        globalStatus2Map[rawSt2].qty += q;
                     }
                 });
 
-                // 僅保留含有單據異常筆數的客戶
-                const customerList = Object.keys(customerMap).map(k => ({
-                    name: k,
-                    count: customerMap[k].count,
-                    qty: customerMap[k].qty
-                })).filter(c => c.count > 0).sort((a, b) => b.count - a.count);
+                // 客戶選單列表：含客戶底下之 status2 分類與數量
+                const customerList = Object.keys(customerMap).map(k => {
+                    const st2Map = customerMap[k].status2Map;
+                    const st2List = Object.keys(st2Map).map(stKey => ({
+                        name: stKey,
+                        count: st2Map[stKey].count,
+                        qty: st2Map[stKey].qty
+                    })).sort((a, b) => b.count - a.count);
 
-                const status2List = Object.keys(status2Map).map(k => ({
+                    return {
+                        name: k,
+                        count: customerMap[k].count,
+                        qty: customerMap[k].qty,
+                        status2List: st2List
+                    };
+                }).sort((a, b) => b.count - a.count);
+
+                const status2List = Object.keys(globalStatus2Map).map(k => ({
                     name: k,
-                    count: status2Map[k].count,
-                    qty: status2Map[k].qty
+                    count: globalStatus2Map[k].count,
+                    qty: globalStatus2Map[k].qty
                 })).sort((a, b) => b.count - a.count);
 
                 const maxCustCount = customerList.reduce((m, c) => Math.max(m, c.count), 1);
-                const maxSt2Count = status2List.reduce((m, c) => Math.max(m, c.count), 1);
-
                 const totalCustCount = customerList.reduce((sum, c) => sum + c.count, 0);
                 const totalAbnormalCount = status2List.reduce((sum, c) => sum + c.count, 0);
                 const abnormalRate = filteredData.length > 0 
@@ -1533,7 +1549,6 @@
                     customerList,
                     status2List,
                     maxCustCount,
-                    maxSt2Count,
                     totalCustCount,
                     totalAbnormalCount,
                     abnormalRate
@@ -1551,8 +1566,8 @@
                                     <Icon name="chart" className="w-6 h-6 text-white" />
                                 </div>
                                 <div>
-                                    <h3 className="text-xl font-bold tracking-wider">單據狀態</h3>
-                                    <p className="text-xs text-teal-100 mt-0.5">來源：進貨表工作表 | 即時數量統計分析</p>
+                                    <h3 className="text-xl font-bold tracking-wider">單據狀態 (客戶異常與分類合併統計)</h3>
+                                    <p className="text-xs text-teal-100 mt-0.5">來源：進貨表工作表 | 以客戶為開頭統計單據異常與詳細分類</p>
                                 </div>
                             </div>
                             <button onClick={onClose} className="p-2 hover:bg-white/20 rounded-full text-white transition-colors">
@@ -1589,50 +1604,35 @@
                                 )}
                             </div>
 
-                            {/* 右側按鈕區：切換檢視頁籤與匯出 PDF */}
+                            {/* 右側按鈕區：匯出 PDF */}
                             <div className="flex items-center gap-3 flex-wrap">
                                 <button 
                                     onClick={exportPDF} 
                                     disabled={isExporting}
-                                    className={`px-3.5 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-sm font-bold flex items-center gap-1.5 shadow-sm transition-all ${isExporting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                    className={`px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-sm font-bold flex items-center gap-1.5 shadow-sm transition-all ${isExporting ? 'opacity-50 cursor-not-allowed' : ''}`}
                                     title="將此統計圖表匯出為 PDF 檔案"
                                 >
                                     <Icon name={isExporting ? "loader" : "download"} className={`w-4 h-4 text-white ${isExporting ? "animate-spin" : ""}`} />
                                     <span>{isExporting ? 'PDF 產生中...' : '匯出圖表 PDF'}</span>
                                 </button>
-
-                                <div className="bg-slate-200/80 p-1 rounded-xl flex gap-1">
-                                    <button 
-                                        onClick={() => setActiveView('customer')}
-                                        className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${activeView === 'customer' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
-                                    >
-                                        客戶異常計數 ({stats.customerList.length})
-                                    </button>
-                                    <button 
-                                        onClick={() => setActiveView('status2')}
-                                        className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${activeView === 'status2' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
-                                    >
-                                        單據異常計數 ({stats.status2List.length})
-                                    </button>
-                                </div>
                             </div>
                         </div>
 
                         {/* PDF 匯出區域 */}
                         <div id="purchase-chart-pdf-area" className="flex-1 flex flex-col overflow-hidden bg-white">
                             {/* Metric Cards */}
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-white/60 border-b border-slate-200/60 shrink-0">
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-white/60 border-b border-slate-200/60 shrink-0 break-inside-avoid" style={{ pageBreakInside: 'avoid', breakInside: 'avoid' }}>
                                 <div className="bg-teal-50/70 p-3 rounded-xl border border-teal-100">
                                     <div className="text-xs font-bold text-teal-700">符合區間總筆數</div>
                                     <div className="text-2xl font-black text-teal-900 font-tech-mono mt-1">{stats.totalRecords} <span className="text-xs font-normal text-slate-500">筆</span></div>
                                 </div>
                                 <div className="bg-emerald-50/70 p-3 rounded-xl border border-emerald-100">
-                                    <div className="text-xs font-bold text-emerald-700">客戶</div>
-                                    <div className="text-2xl font-black text-emerald-900 font-tech-mono mt-1">{stats.totalCustCount} <span className="text-xs font-normal text-slate-500">筆</span></div>
-                                    <div className="text-[10px] text-slate-400 mt-0.5">({stats.customerList.length} 個客戶)</div>
+                                    <div className="text-xs font-bold text-emerald-700">異常客戶總數</div>
+                                    <div className="text-2xl font-black text-emerald-900 font-tech-mono mt-1">{stats.customerList.length} <span className="text-xs font-normal text-slate-500">家</span></div>
+                                    <div className="text-[10px] text-slate-400 mt-0.5">({stats.totalCustCount} 筆異常)</div>
                                 </div>
                                 <div className="bg-indigo-50/70 p-3 rounded-xl border border-indigo-100">
-                                    <div className="text-xs font-bold text-indigo-700">單據異常數</div>
+                                    <div className="text-xs font-bold text-indigo-700">單據異常總筆數</div>
                                     <div className="text-2xl font-black text-indigo-900 font-tech-mono mt-1">{stats.totalAbnormalCount} <span className="text-xs font-normal text-slate-500">筆</span></div>
                                     <div className="text-[10px] text-slate-400 mt-0.5">({stats.status2List.length} 種分類)</div>
                                 </div>
@@ -1642,70 +1642,66 @@
                                 </div>
                             </div>
 
-                            {/* Visual Chart Bars Container */}
-                            <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                                {(activeView === 'customer' || isExporting) && (
-                                    <div className="space-y-3">
-                                        <div className="text-sm font-bold text-teal-800 border-b border-teal-100 pb-1 flex justify-between">
-                                            <span>【客戶異常計數】客戶名稱</span>
-                                            <span>異常筆數 (進貨數量)</span>
-                                        </div>
-                                        {stats.customerList.map((item, idx) => {
-                                            const pct = Math.round((item.count / stats.maxCustCount) * 100);
-                                            return (
-                                                <div key={idx} className="bg-white p-3 rounded-xl border border-slate-200/80 shadow-sm hover:border-teal-300 transition-all">
-                                                    <div className="flex justify-between items-center mb-1.5 text-sm">
-                                                        <span className="font-bold text-slate-800">{item.name}</span>
-                                                        <div className="font-tech-mono">
-                                                            <span className="font-bold text-teal-700 text-base">{item.count} 筆</span>
-                                                            <span className="text-slate-400 text-xs ml-2">(量: {item.qty})</span>
-                                                        </div>
-                                                    </div>
-                                                    <div className="w-full bg-slate-100 h-3.5 rounded-full overflow-hidden flex">
-                                                        <div 
-                                                            className="bg-gradient-to-r from-teal-500 to-emerald-400 h-full rounded-full transition-all duration-500" 
-                                                            style={{ width: `${pct}%` }}
-                                                        ></div>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-                                        {stats.customerList.length === 0 && (
-                                            <div className="text-center py-16 text-slate-400 font-bold">目前無符合條件之客戶資料</div>
-                                        )}
-                                    </div>
-                                )}
+                            {/* Visual Combined Chart Bars Container */}
+                            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                                <div className="text-sm font-bold text-teal-800 border-b border-teal-100 pb-1 flex justify-between items-center">
+                                    <span>【客戶與單據異常合併統計】以客戶為單位分類明細</span>
+                                    <span className="text-xs text-slate-500 font-mono">共 {stats.customerList.length} 個異常客戶</span>
+                                </div>
 
-                                {(activeView === 'status2' || isExporting) && (
-                                    <div className="space-y-3">
-                                        <div className="text-sm font-bold text-indigo-800 border-b border-indigo-100 pb-1 flex justify-between">
-                                            <span>【單據異常計數】狀態2 類別</span>
-                                            <span>異常筆數 (進貨數量)</span>
-                                        </div>
-                                        {stats.status2List.map((item, idx) => {
-                                            const pct = Math.round((item.count / stats.maxSt2Count) * 100);
-                                            return (
-                                                <div key={idx} className="bg-white p-3 rounded-xl border border-slate-200/80 shadow-sm hover:border-teal-300 transition-all">
-                                                    <div className="flex justify-between items-center mb-1.5 text-sm">
-                                                        <span className="font-bold text-slate-800 bg-indigo-50 text-indigo-700 border border-indigo-200 px-2.5 py-0.5 rounded-md">{item.name}</span>
-                                                        <div className="font-tech-mono">
-                                                            <span className="font-bold text-indigo-600 text-base">{item.count} 筆</span>
-                                                            <span className="text-slate-400 text-xs ml-2">(量: {item.qty})</span>
-                                                        </div>
-                                                    </div>
-                                                    <div className="w-full bg-slate-100 h-3.5 rounded-full overflow-hidden flex">
-                                                        <div 
-                                                            className="bg-gradient-to-r from-indigo-500 to-purple-400 h-full rounded-full transition-all duration-500" 
-                                                            style={{ width: `${pct}%` }}
-                                                        ></div>
-                                                    </div>
+                                {stats.customerList.map((cust, idx) => {
+                                    const pct = Math.round((cust.count / stats.maxCustCount) * 100);
+                                    return (
+                                        <div key={idx} className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-sm hover:border-teal-300 transition-all space-y-3 break-inside-avoid" style={{ pageBreakInside: 'avoid', breakInside: 'avoid' }}>
+                                            {/* 客戶標題與數據摘要 */}
+                                            <div className="flex flex-wrap justify-between items-center gap-2">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="w-2.5 h-2.5 rounded-full bg-teal-500"></span>
+                                                    <span className="font-bold text-slate-800 text-base sm:text-lg">{cust.name}</span>
+                                                    <span className="text-xs bg-teal-50 text-teal-700 border border-teal-200 px-2.5 py-0.5 rounded-md font-bold">
+                                                        異常小計: {cust.count} 筆
+                                                    </span>
                                                 </div>
-                                            );
-                                        })}
-                                        {stats.status2List.length === 0 && (
-                                            <div className="text-center py-16 text-slate-400 font-bold">目前無符合條件之狀態2資料</div>
-                                        )}
-                                    </div>
+                                                <div className="font-tech-mono text-sm">
+                                                    <span className="font-bold text-teal-700 text-base">{cust.count} 筆</span>
+                                                    <span className="text-slate-400 text-xs ml-2">(進貨量: {cust.qty})</span>
+                                                </div>
+                                            </div>
+
+                                            {/* 主進度條 */}
+                                            <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden flex">
+                                                <div 
+                                                    className="bg-gradient-to-r from-teal-500 to-emerald-400 h-full rounded-full transition-all duration-500" 
+                                                    style={{ width: `${pct}%` }}
+                                                ></div>
+                                            </div>
+
+                                            {/* 單據異常分類 (Status2) 明細子卡片 */}
+                                            <div className="bg-slate-50/80 p-3 rounded-lg border border-slate-200/60 mt-2">
+                                                <div className="text-xs font-bold text-slate-500 mb-2 flex items-center gap-1">
+                                                    <Icon name="info" className="w-3.5 h-3.5 text-indigo-500" />
+                                                    <span>單據異常原因分類與計數：</span>
+                                                </div>
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                                                    {cust.status2List.map((st2, stIdx) => (
+                                                        <div key={stIdx} className="bg-white p-2.5 rounded-md border border-slate-200/80 flex justify-between items-center text-xs shadow-2xs">
+                                                            <span className="font-bold text-slate-700 bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded text-[11px] truncate max-w-[140px]">
+                                                                {st2.name}
+                                                            </span>
+                                                            <div className="font-tech-mono text-right pl-2">
+                                                                <span className="font-bold text-indigo-600 text-sm">{st2.count} 筆</span>
+                                                                <span className="text-slate-400 text-[10px] block">量: {st2.qty}</span>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+
+                                {stats.customerList.length === 0 && (
+                                    <div className="text-center py-16 text-slate-400 font-bold">目前無符合條件之客戶單據異常資料</div>
                                 )}
                             </div>
                         </div>
