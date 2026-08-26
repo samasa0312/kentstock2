@@ -315,7 +315,8 @@
                     result.materialInventory.push({
                         id: getVal(row, ['料號', '品號', 'partno'], ['料號', '品號']),
                         spec: getVal(row, ['品名', '品名規格'], ['品名', '規格']),
-                        allUsageStock: getVal(row, ['ALL工單用量', 'All工單用量', 'all工單用量', 'ALL工單用量庫存'], ['all工單用量', 'all用量', 'all供單用量', '工單用量']),
+                        issuedUsageStock: getVal(row, ['已發放領用庫存', '已發放工單領用庫存', '已發放領用'], ['已發放領用', '已發放']),
+                        allUsageStock: getVal(row, ['ALL工單用量庫存', 'ALL工單用量', 'All工單用量', 'all工單用量'], ['all工單用量', 'all用量', 'all供單用量', '工單用量']),
                         safetyStock: getVal(row, ['安全庫存', '安全庫存量'], ['安全庫存']),
                         yearlyData
                     });
@@ -523,7 +524,8 @@
                         return {
                             id: getVal(row, ['料號', '品號', 'partno'], ['料號', '品號']),
                             spec: getVal(row, ['品名', '品名規格'], ['品名', '規格']),
-                            allUsageStock: getVal(row, ['ALL工單用量', 'All工單用量', 'all工單用量', 'ALL工單用量庫存'], ['all工單用量', 'all用量', 'all供單用量', '工單用量']),
+                            issuedUsageStock: getVal(row, ['已發放領用庫存', '已發放工單領用庫存', '已發放領用'], ['已發放領用', '已發放']),
+                            allUsageStock: getVal(row, ['ALL工單用量庫存', 'ALL工單用量', 'All工單用量', 'all工單用量'], ['all工單用量', 'all用量', 'all供單用量', '工單用量']),
                             safetyStock: getVal(row, ['安全庫存', '安全庫存量'], ['安全庫存']),
                             yearlyData
                         };
@@ -1149,7 +1151,7 @@
             const filteredData = useMemo(() => {
                 if (!data || data.length === 0) return [];
                 return data.filter(item => {
-                    const matchesGlobal = isMatch([item.id, item.spec, item.allUsageStock, item.safetyStock], globalSearch);
+                    const matchesGlobal = isMatch([item.id, item.spec, item.issuedUsageStock, item.allUsageStock, item.safetyStock], globalSearch);
                     if (!matchesGlobal) return false;
 
                     const parsedSafety = parseFloat(item.safetyStock);
@@ -1207,14 +1209,15 @@
 
                 let csvContent = "\uFEFF";
                 if (title === '物料庫存') {
-                    csvContent += "料號,品名規格,現有實際庫存,安全庫存差異\n";
+                    csvContent += "料號,品名規格,已發放工單剩餘用量,扣除所有工單剩餘用量,安全庫存差異\n";
                     filteredData.forEach(row => {
                         const parsedSafety = parseFloat(row.safetyStock);
                         const displaySafety = isNaN(parsedSafety) ? 0 : Math.round(parsedSafety);
                         const displayStock = (Number(row.allUsageStock) < 0) ? 0 : row.allUsageStock;
+                        const displayIssuedStock = (Number(row.issuedUsageStock) < 0) ? 0 : (row.issuedUsageStock ?? '');
                         const safeId = `"${String(row.id || '').replace(/"/g, '""')}"`;
                         const safeSpec = `"${String(row.spec || '').replace(/"/g, '""')}"`;
-                        csvContent += `${safeId},${safeSpec},${displayStock},${displaySafety}\n`;
+                        csvContent += `${safeId},${safeSpec},${displayIssuedStock},${displayStock},${displaySafety}\n`;
                     });
                 } else {
                     csvContent += "料號,品名規格,現有實際庫存\n";
@@ -1271,7 +1274,7 @@
                                     )}
                                     <input
                                         type="text"
-                                        placeholder="現有庫存過濾 (如 >10)"
+                                        placeholder="庫存用量過濾 (如 >10)"
                                         className="bg-white/80 border border-slate-200 rounded px-2 py-1 text-xs outline-none focus:border-teal-500 font-tech-mono w-44"
                                         value={localStockFilter}
                                         onChange={e => setLocalStockFilter(e.target.value)}
@@ -1286,7 +1289,14 @@
                                             <th className="px-3 py-3 w-12 text-center whitespace-nowrap">#</th>
                                             <th className="px-3 py-3">料號</th>
                                             <th className="px-3 py-3">品名規格</th>
-                                            <th className="px-3 py-3 text-center">現有實際庫存</th>
+                                            {showDataPanel ? (
+                                                <>
+                                                    <th className="px-3 py-3 text-center">已發放工單剩餘用量</th>
+                                                    <th className="px-3 py-3 text-center">扣除所有工單剩餘用量</th>
+                                                </>
+                                            ) : (
+                                                <th className="px-3 py-3 text-center">現有實際庫存</th>
+                                            )}
                                             {showDataPanel && <th className="px-3 py-3 text-center">安全庫存差異</th>}
                                             <th className="px-3 py-3 text-center">季報與明細</th>
                                         </tr>
@@ -1296,12 +1306,16 @@
                                             const parsedSafety = parseFloat(row.safetyStock);
                                             const displaySafety = isNaN(parsedSafety) ? 0 : Math.round(parsedSafety);
                                             const displayStock = (title === '物料庫存' && Number(row.allUsageStock) < 0) ? 0 : row.allUsageStock;
+                                            const displayIssuedStock = (title === '物料庫存' && Number(row.issuedUsageStock) < 0) ? 0 : (row.issuedUsageStock !== undefined && row.issuedUsageStock !== '' ? row.issuedUsageStock : '-');
 
                                             return (
                                                 <tr key={idx} className="hover:bg-white/60 transition-colors">
                                                     <td className="px-3 py-2 text-center text-slate-400 font-tech-mono">{idx + 1}</td>
                                                     <td className="px-3 py-2 font-tech-mono font-bold text-teal-700 break-all">{row.id || '-'}</td>
                                                     <td className="px-3 py-2 max-w-[300px] break-words text-slate-600">{row.spec || '-'}</td>
+                                                    {showDataPanel && (
+                                                        <td className="px-3 py-2 text-center font-tech-mono font-bold text-slate-800 text-base">{displayIssuedStock}</td>
+                                                    )}
                                                     <td className="px-3 py-2 text-center font-tech-mono font-bold text-slate-800 text-base">{displayStock}</td>
                                                     {showDataPanel && (
                                                         <td className="px-3 py-2 text-center font-tech-mono">
@@ -1322,7 +1336,7 @@
                                             );
                                         })}
                                         {filteredData.length === 0 && (
-                                            <tr><td colSpan="6" className="px-6 py-20 text-center text-slate-500 font-bold text-lg">查無相符資料</td></tr>
+                                            <tr><td colSpan={showDataPanel ? "7" : "5"} className="px-6 py-20 text-center text-slate-500 font-bold text-lg">查無相符資料</td></tr>
                                         )}
                                     </tbody>
                                 </table>
